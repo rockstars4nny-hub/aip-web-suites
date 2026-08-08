@@ -152,6 +152,34 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
   letter-spacing:.06em; border-top:1px solid var(--line); margin-top:32px;
 }
 
+
+/* Intel → Audit handoff */
+.handoff-bar{
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;
+  margin-top:18px; padding:14px 16px;
+  background:rgba(245,197,66,.07); border:1px solid rgba(245,197,66,.28);
+  border-left:3px solid var(--star); border-radius:10px;
+}
+.handoff-bar p{font:400 13px/1.5 var(--sans); color:var(--dim); margin:0; flex:1; min-width:200px}
+.handoff-bar p strong{color:var(--text)}
+.intel-brief{
+  background:rgba(12,18,32,.85); border:1px solid rgba(94,234,212,.22);
+  border-left:3px solid var(--plasma); border-radius:10px; padding:16px 18px; margin-bottom:16px;
+}
+.intel-brief.empty-brief{opacity:.7; border-left-color:var(--muted)}
+.intel-brief h3{font:700 11px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--plasma); margin-bottom:8px}
+.intel-brief .brief-target{font:600 15px/1.4 var(--mono); color:var(--text); word-break:break-all; margin-bottom:8px}
+.intel-brief .brief-meta{font:400 12px/1.55 var(--mono); color:var(--dim); white-space:pre-wrap}
+.intel-brief .rec-mods{display:flex; flex-wrap:wrap; gap:6px; margin-top:12px}
+.intel-brief .rec-mods button{
+  appearance:none; border:1px solid rgba(245,197,66,.3); background:rgba(245,197,66,.08);
+  color:var(--star); border-radius:6px; padding:7px 10px; font:600 10px var(--mono);
+  letter-spacing:.06em; text-transform:uppercase; cursor:pointer;
+}
+.intel-brief .rec-mods button:hover{background:rgba(245,197,66,.16)}
+.dtab.recommended{border-color:rgba(94,234,212,.25); box-shadow:inset 3px 0 0 var(--plasma)}
+.dtab.recommended:not(.active){color:var(--plasma)}
+
 /* FORK_STRICT banner */
 .fork-banner{
   display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap;
@@ -372,7 +400,11 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
         <div class="grid" id="grid-finance"></div>
       </div>
 
-      <div class="row" style="margin-top:18px">
+      <div class="handoff-bar">
+        <p><strong>Dossier ready.</strong> Push this target into Audit Matrix — modules, notes, and PoC scaffold will load with your intel context.</p>
+        <button class="btn primary" type="button" onclick="sendToAuditMatrix()">Send to Audit Matrix →</button>
+      </div>
+      <div class="row" style="margin-top:14px">
         <button class="btn" type="button" onclick="intelExport('md')">Export MD</button>
         <button class="btn" type="button" onclick="intelExport('json')">Export JSON</button>
         <button class="btn danger" type="button" onclick="intelReset()">Ephemeral wipe</button>
@@ -406,6 +438,16 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
   </header>
 
   <main class="main" id="audit-main">
+    <div class="intel-brief empty-brief" id="intel-brief">
+      <h3>Chain Intel context</h3>
+      <div class="brief-target" id="intel-brief-target">No dossier loaded</div>
+      <div class="brief-meta" id="intel-brief-meta">Run Chain Intel on a target, then click <strong>Send to Audit Matrix</strong>. Recommended modules and PoC target will populate here.</div>
+      <div class="rec-mods" id="intel-brief-recs"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" type="button" onclick="switchMode('intel')">← Back to Chain Intel</button>
+        <button class="btn danger" type="button" id="intel-brief-clear" onclick="clearAuditIntel()" hidden>Clear intel context</button>
+      </div>
+    </div>
     <!-- FORK_EXECUTED banner (persistent) -->
     <div class="fork-banner" id="fork-banner">
       <div class="fork-banner-body">
@@ -532,13 +574,19 @@ var forkStrict = false;
 var bannerAckSession = false;
 
 function switchMode(m){
-  document.getElementById("intel-app").classList.toggle("active", m === "intel");
-  document.getElementById("audit-app").classList.toggle("active", m === "audit");
-  document.getElementById("caps-app").classList.toggle("active", m === "caps");
-  document.getElementById("mode-intel").classList.toggle("active", m === "intel");
-  document.getElementById("mode-audit").classList.toggle("active", m === "audit");
-  document.getElementById("mode-caps").classList.toggle("active", m === "caps");
-  if(m !== "audit") closeDrawer();
+  document.querySelectorAll(".app").forEach(function(a){ a.classList.remove("active"); });
+  document.querySelectorAll(".mode-btn").forEach(function(b){ b.classList.remove("active"); });
+  var map = {intel:"intel-app", audit:"audit-app", caps:"caps-app"};
+  var btn = {intel:"mode-intel", audit:"mode-audit", caps:"mode-caps"};
+  document.getElementById(map[m]).classList.add("active");
+  document.getElementById(btn[m]).classList.add("active");
+  if(m === "audit"){
+    closeDrawer();
+    loadIntelDossier();
+    renderIntelBrief();
+    renderAuditChrome();
+    refreshPocWithIntel();
+  }
 }
 
 function isHexAddress(s){ return /^0x[a-fA-F0-9]{40}$/.test(s); }
@@ -576,6 +624,130 @@ function setGrid(id, html){ document.getElementById(id).innerHTML = html; }
 
 var lastDossier = null;
 
+var DOSSIER_KEY = "aip.web3.intelDossier";
+
+function recommendModulesFor(kind){
+  // indices into AUDIT_TABS
+  if(kind === "solana") return [8, 4, 11, 14];
+  if(kind === "tx") return [1, 2, 3, 13, 11];
+  if(kind === "ens" || kind === "protocol") return [0, 2, 4, 6, 7, 11, 14];
+  if(kind === "address") return [0, 1, 2, 3, 4, 5, 6, 11, 14];
+  return [0, 1, 2, 4, 11, 14];
+}
+
+function hypothesesFor(kind){
+  var base = [
+    "Unprotected initializer / upgrade auth",
+    "Spot oracle in critical path",
+    "CEI / reentrancy on value transfer",
+    "Flashloanable accounting edge"
+  ];
+  if(kind === "solana") return ["Missing signer check", "Arbitrary CPI", "PDA bump misuse", "Account owner confusion"];
+  if(kind === "tx") return ["Failed invariant in calldata path", "Approval / permit misuse", "Router callback trust"];
+  return base;
+}
+
+function huntBriefFor(raw, c, fp, recs){
+  var names = recs.map(function(i){ return (AUDIT_TABS[i] && AUDIT_TABS[i].title) || ("Module "+i); });
+  return "TARGET: "+raw+"\nCLASS: "+c.label+"\nFP: "+fp+"\nFOCUS: "+names.join(" · ")+
+    "\nPOLICY: FORK_EXECUTED only — Anvil fork + pinned block. No mainnet exploit txs.";
+}
+
+function persistIntelDossier(d){
+  try{ localStorage.setItem(DOSSIER_KEY, JSON.stringify(d)); }catch(e){}
+}
+
+function loadIntelDossier(){
+  if(lastDossier) return lastDossier;
+  try{
+    var raw = localStorage.getItem(DOSSIER_KEY);
+    if(raw) lastDossier = JSON.parse(raw);
+  }catch(e){}
+  return lastDossier;
+}
+
+function clearAuditIntel(){
+  lastDossier = null;
+  try{ localStorage.removeItem(DOSSIER_KEY); }catch(e){}
+  renderIntelBrief();
+  renderAuditChrome();
+  refreshPocWithIntel();
+  setAuditStatusMsg("Intel context cleared.", "warn");
+}
+
+function sendToAuditMatrix(){
+  if(!lastDossier){
+    document.getElementById("intel-status").textContent = "RUN COLLECTION FIRST";
+    return;
+  }
+  persistIntelDossier(lastDossier);
+  switchMode("audit");
+  var recs = lastDossier.recommended_modules || [];
+  if(recs.length) selectAudit(recs[0]);
+  setAuditStatusMsg("Loaded Chain Intel → "+lastDossier.target, "ok");
+}
+
+function renderIntelBrief(){
+  var box = document.getElementById("intel-brief");
+  if(!box) return;
+  var d = loadIntelDossier();
+  // also refresh per-module notes when brief changes
+  try{ injectIntelNotesIntoPanes(); }catch(e){}
+  var targetEl = document.getElementById("intel-brief-target");
+  var metaEl = document.getElementById("intel-brief-meta");
+  var recsEl = document.getElementById("intel-brief-recs");
+  var clearBtn = document.getElementById("intel-brief-clear");
+  if(!d){
+    box.classList.add("empty-brief");
+    targetEl.textContent = "No dossier loaded";
+    metaEl.innerHTML = 'Run Chain Intel on a target, then click <strong>Send to Audit Matrix</strong>. Recommended modules and PoC target will populate here.';
+    recsEl.innerHTML = "";
+    if(clearBtn) clearBtn.hidden = true;
+    return;
+  }
+  box.classList.remove("empty-brief");
+  targetEl.textContent = d.target;
+  var hy = (d.hypotheses || []).map(function(h){ return "• "+h; }).join("\n");
+  metaEl.textContent =
+    "CLASS: "+(d.class && d.class.label ? d.class.label : "?")+
+    "\nFINGERPRINT: "+(d.fingerprint || "—")+
+    "\nCOLLECTED: "+(d.generated_at || "—")+
+    "\nROE: "+(d.roe || "fork-only")+
+    "\n\nHYPOTHESES\n"+hy+
+    "\n\n"+((d.hunt_brief) || "");
+  var recs = d.recommended_modules || [];
+  recsEl.innerHTML = recs.map(function(i){
+    var title = (AUDIT_TABS[i] && AUDIT_TABS[i].title) || ("Module "+(i+1));
+    return '<button type="button" onclick="selectAudit('+i+')">'+String(i+1).padStart(2,"0")+" "+esc(title)+"</button>";
+  }).join("");
+  if(clearBtn) clearBtn.hidden = false;
+}
+
+function refreshPocWithIntel(){
+  var d = loadIntelDossier();
+  var out = document.getElementById("poc-scaffold-out");
+  if(!out) return;
+  var base = AUDIT_TABS[14] && AUDIT_TABS[14].payloads;
+  if(!base) return;
+  if(!d){ out.textContent = base; return; }
+  var tgt = d.target || "0xTARGET";
+  var patched = base
+    .replace(/\/\/ Target under test:.*$/m, "// Target under test: "+tgt+" ("+(d.class && d.class.label || "")+")")
+    .replace(/address constant TARGET = address\(0\);/, "address constant TARGET = "+(isHexAddress(tgt) ? tgt : "address(0)")+"; // intel: "+tgt);
+  // If template lacks those anchors, prepend intel header
+  if(patched === base){
+    patched = "/* AIP Chain Intel context\n * target: "+tgt+
+      "\n * class: "+(d.class && d.class.label || "")+
+      "\n * fp: "+(d.fingerprint || "")+
+      "\n * hypotheses:\n * - "+(d.hypotheses||[]).join("\n * - ")+
+      "\n * FORK_STRICT: createSelectFork + pinned block; no vm.broadcast on exploit path\n */\n\n" + base;
+  }
+  out.textContent = patched;
+  // Keep gated payloads in sync for copy/export
+  if(AUDIT_TABS[14]) AUDIT_TABS[14]._runtimePayloads = patched;
+}
+
+
 function intelClassify(){
   var c = classify(document.getElementById("intel-seed").value);
   document.getElementById("intel-type").textContent = c.label;
@@ -588,6 +760,9 @@ function intelReset(){
   document.getElementById("intel-results").hidden = true;
   document.getElementById("intel-status").textContent = "READY";
   lastDossier = null;
+  try{ localStorage.removeItem(DOSSIER_KEY); }catch(e){}
+  renderIntelBrief();
+  renderAuditChrome();
 }
 
 function jumpTo(id){
@@ -678,16 +853,22 @@ async function intelRun(){
     panel("Next actions", "1) Pull verified source\n2) Slither + manual entrypoints\n3) Fork PoC on Anvil (FORK_EXECUTED)\n4) BVET before submit")
   ].join(""));
 
+  var recs = recommendModulesFor(c.kind);
   lastDossier = {
     schema: "aip.web3.chain-intel.v1",
     target: raw,
     class: c,
     fingerprint: fp,
     generated_at: new Date().toISOString(),
-    roe: "authorized-scope; fork-only-validation; no-mainnet-harm"
+    roe: "authorized-scope; fork-only-validation; no-mainnet-harm",
+    recommended_modules: recs,
+    hypotheses: hypothesesFor(c.kind),
+    hunt_brief: huntBriefFor(raw, c, fp, recs)
   };
+  persistIntelDossier(lastDossier);
   document.getElementById("intel-summary").innerHTML =
-    'Brief ready for <strong>'+esc(c.label)+'</strong> · fingerprint <strong>'+fp+'</strong> · use category jump above';
+    'Brief ready for <strong>'+esc(c.label)+'</strong> · fingerprint <strong>'+fp+'</strong> · '+
+    '<strong>'+recs.length+'</strong> audit modules recommended · send to Audit Matrix when ready';
   document.getElementById("intel-status").textContent = "DOSSIER READY";
   jumpTo("cat-identity");
 }
@@ -700,6 +881,9 @@ function intelExport(kind){
     name = "aip-web3-intel.json";
     type = "application/json";
   } else {
+    var recNames = (lastDossier.recommended_modules || []).map(function(i){
+      return (AUDIT_TABS[i] && AUDIT_TABS[i].title) || ("Module "+(i+1));
+    });
     body = [
       "# AIP Web3 Chain Intel",
       "",
@@ -709,13 +893,25 @@ function intelExport(kind){
       "- at: "+lastDossier.generated_at,
       "- ROE: "+lastDossier.roe,
       "",
+      "## Hypotheses"
+    ].concat((lastDossier.hypotheses || []).map(function(h){ return "- "+h; })).concat([
+      "",
+      "## Recommended Audit Matrix modules"
+    ]).concat(recNames.map(function(n){ return "- "+n; })).concat([
+      "",
+      "## Hunt brief",
+      "```",
+      lastDossier.hunt_brief || "",
+      "```",
+      "",
       "## Next",
+      "- Send to Audit Matrix (in-suite handoff)",
       "- Verified source",
       "- Entrypoint map",
       "- Fork PoC (FORK_EXECUTED only)",
       "- BVET gates",
       ""
-    ].join("\n");
+    ]).join("\n");
     name = "aip-web3-intel.md";
     type = "text/markdown";
   }
@@ -1036,12 +1232,52 @@ function sevClass(sev){
   return "l";
 }
 
+
+function injectIntelNotesIntoPanes(){
+  var d = loadIntelDossier();
+  document.querySelectorAll("[data-intel-note]").forEach(function(el){ el.remove(); });
+  if(!d) return;
+  var recs = d.recommended_modules || [];
+  var hy = (d.hypotheses || []).slice(0, 3).join(" · ");
+  AUDIT_TABS.forEach(function(tab, i){
+    var pane = document.getElementById("audit-pane-" + i);
+    if(!pane) return;
+    var meta = pane.querySelector(".meta");
+    if(!meta) return;
+    var note = document.createElement("div");
+    note.setAttribute("data-intel-note", "1");
+    note.className = "intel-brief";
+    note.style.marginTop = "12px";
+    note.style.marginBottom = "0";
+    note.style.padding = "12px 14px";
+    var rec = recs.indexOf(i) >= 0;
+    var title = document.createElement("h3");
+    title.textContent = rec ? "Intel · recommended for this target" : "Intel context";
+    var tgt = document.createElement("div");
+    tgt.className = "brief-target";
+    tgt.style.fontSize = "13px";
+    tgt.textContent = d.target;
+    var metaLine = document.createElement("div");
+    metaLine.className = "brief-meta";
+    metaLine.textContent = ((d.class && d.class.label) || "") + " · fp " + (d.fingerprint || "—") +
+      (hy ? "\nHypotheses: " + hy : "");
+    note.appendChild(title);
+    note.appendChild(tgt);
+    note.appendChild(metaLine);
+    meta.insertAdjacentElement("afterend", note);
+  });
+}
+
 function renderAuditChrome(){
   var wrap = document.getElementById("drawer-tabs");
+  var d = loadIntelDossier();
+  var recs = (d && d.recommended_modules) || [];
   wrap.innerHTML = AUDIT_TABS.map(function(t, i){
     var locked = t.gated && !forkStrict;
-    return '<button type="button" class="dtab'+(i===currentAudit?" active":"")+(locked?" locked-tab":"")+'" onclick="selectAudit('+i+')">'+
-      '<span class="dtab-num">'+String(i+1).padStart(2,"0")+'</span>'+esc(t.title)+'</button>';
+    var rec = recs.indexOf(i) >= 0;
+    return '<button type="button" class="dtab'+(i===currentAudit?" active":"")+(locked?" locked-tab":"")+(rec?" recommended":"")+'" onclick="selectAudit('+i+')"'+
+      (rec?' title="Recommended from Chain Intel"':'')+'>'+
+      '<span class="dtab-num">'+String(i+1).padStart(2,"0")+'</span>'+esc(t.title)+(rec?' · REC':'')+'</button>';
   }).join("");
 }
 
@@ -1114,14 +1350,21 @@ function selectAudit(i){
   document.querySelectorAll(".dtab").forEach(function(b, idx){ b.classList.toggle("active", idx===i); });
   document.querySelectorAll(".audit-pane").forEach(function(p, idx){ p.classList.toggle("active", idx===i); });
   document.getElementById("audit-module-title").textContent = AUDIT_TABS[i].title;
-  document.getElementById("audit-status").textContent = "MODULE "+String(i+1).padStart(2,"0")+" / 15";
+  var d = loadIntelDossier();
+  var st = "MODULE "+String(i+1).padStart(2,"0")+" / 15";
+  if(d){
+    var rec = (d.recommended_modules || []).indexOf(i) >= 0;
+    st += rec ? " · INTEL REC" : " · INTEL LOADED";
+  }
+  document.getElementById("audit-status").textContent = st;
+  if(AUDIT_TABS[i].isPoc) refreshPocWithIntel();
   closeDrawer();
 }
 
 function copyAudit(i){
   var t = AUDIT_TABS[i];
   if(t.gated && !requireFork("Copy scaffold")) return;
-  var text = t.payloads;
+  var text = t._runtimePayloads || t.payloads;
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(text).then(function(){
       var el = document.getElementById("audit-score-"+i);
@@ -1151,8 +1394,10 @@ function scoreAudit(i){
 
 function exportPoc(){
   if(!requireFork("Export PoC")) return;
+  refreshPocWithIntel();
   var a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([POC_SCAFFOLD], {type:"text/plain"}));
+  var pocBody = (AUDIT_TABS[14] && AUDIT_TABS[14]._runtimePayloads) || POC_SCAFFOLD;
+  a.href = URL.createObjectURL(new Blob([pocBody], {type:"text/plain"}));
   a.download = "AipWeb3PoC.t.sol";
   a.click();
   setAuditStatusMsg("Exported AipWeb3PoC.t.sol — FORK_STRICT scaffold", "ok");
@@ -1214,7 +1459,10 @@ function claimFinding(i){
 /* boot */
 renderAuditPanes();
 loadForkStrict();
+loadIntelDossier();
+renderIntelBrief();
 selectAudit(0);
+refreshPocWithIntel();
 intelClassify();
 </script>
 </body>
