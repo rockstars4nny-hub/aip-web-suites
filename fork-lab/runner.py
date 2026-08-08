@@ -57,8 +57,15 @@ def render_full_suite(target_addr: str) -> str:
     raw = FULL_SUITE_PATH.read_text(encoding="utf-8")
     if not ADDRESS_RE.match(target_addr):
         raise ValueError("full suite requires a valid 0x address")
-    return raw.replace("__TARGET__", target_addr)
-
+    # Prefer EIP-55 checksum so solc accepts the address literal.
+    checksummed = target_addr
+    try:
+        p = _run([CAST, "to-check-sum-address", target_addr], timeout=15)
+        if p.returncode == 0 and ADDRESS_RE.match((p.stdout or "").strip()):
+            checksummed = (p.stdout or "").strip()
+    except Exception:
+        pass
+    return raw.replace("__TARGET__", checksummed)
 
 
 def default_rpc() -> str:
@@ -216,6 +223,30 @@ def _parse_forge_counts(text: str) -> dict:
     }
 
 
+def _prepare_solodit_workspace(solidity: str) -> Path:
+    """Workspace with ONLY the published Solodit PoC (no hypothesis suite)."""
+    if not TEMPLATE.exists():
+        raise RuntimeError(f"missing template at {TEMPLATE}")
+    if _has_broadcast_code(solidity):
+        raise RuntimeError("REJECTED: Solodit PoC contains vm.broadcast")
+    work = Path(tempfile.mkdtemp(prefix="aip-solodit-"))
+    for name in ("foundry.toml", "lib", "src", "test", "script"):
+        src = TEMPLATE / name
+        dst = work / name
+        if src.is_dir():
+            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("out", "cache", ".git"))
+        elif src.exists():
+            shutil.copy2(src, dst)
+    test_dir = work / "test"
+    if test_dir.exists():
+        for f in test_dir.glob("*.sol"):
+            f.unlink()
+    else:
+        test_dir.mkdir(parents=True)
+    (test_dir / "AipSoloditPoC.t.sol").write_text(solidity, encoding="utf-8")
+    return work
+
+
 def run_fork(
     *,
     address: str | None = None,
@@ -223,11 +254,77 @@ def run_fork(
     rpc: str | None = None,
     block: str | int | None = None,
     timeout: int = 600,
+    solodit_poc_id: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.time()
     rpc_url = (rpc or default_rpc()).strip()
     if not rpc_url:
         return {"ok": False, "error": "ETH_RPC_URL not configured"}
+
+    # ── Solodit published PoC path (real payloads only; no full-suite probes) ──
+    if solodit_poc_id:
+        try:
+            from solodit.library import get_entry, load_poc_solidity
+
+            entry = get_entry(solodit_poc_id)
+            if not entry:
+                return {"ok": False, "error": f"unknown solodit_poc_id: {solodit_poc_id}", "attestation": "REJECTED_SOLODIT"}
+            if entry.get("status") != "forge_verified":
+                return {
+                    "ok": False,
+                    "error": f"Solodit entry not forge_verified (status={entry.get('status')})",
+                    "attestation": "REJECTED_SOLODIT",
+                }
+            poc_src = load_poc_solidity(solodit_poc_id)
+            addr = (address or entry.get("primary_target") or "").strip()
+            pinned = str(block).strip() if block not in (None, "") else str(entry.get("fork_block") or "")
+            if not pinned:
+                p = _run([CAST, "block-number", "--rpc-url", rpc_url], timeout=30)
+                if p.returncode != 0:
+                    return {"ok": False, "error": f"cannot read block number: {(p.stderr or p.stdout)[:300]}"}
+                pinned = (p.stdout or "").strip()
+            work = None
+            try:
+                work = _prepare_solodit_workspace(poc_src)
+                cmd = [FORGE, "test", "--fork-url", rpc_url, "--fork-block-number", pinned, "-vvv"]
+                proc = _run(cmd, cwd=work, timeout=timeout)
+                stdout = proc.stdout or ""
+                stderr = proc.stderr or ""
+                combined = (stdout + "\n" + stderr).strip()
+                passed = proc.returncode == 0
+                counts = _parse_forge_counts(combined)
+                return {
+                    "ok": passed,
+                    "attestation": "FORK_SOLODIT_VERIFIED" if passed else "FORK_SOLODIT_FAILED",
+                    "exit_code": proc.returncode,
+                    "rpc_redacted": redact_rpc(rpc_url),
+                    "fork_block": pinned,
+                    "address": addr or None,
+                    "duration_ms": int((time.time() - t0) * 1000),
+                    "stdout": stdout[-200000:],
+                    "stderr": stderr[-60000:],
+                    "solidity_sha256": hashlib.sha256(poc_src.encode()).hexdigest(),
+                    "command": f"forge test --fork-url <RPC> --fork-block-number {pinned} -vvv  # SOLODIT PoC only",
+                    "policy": "no-broadcast; fork-only; published-solodit-poc; no-hypothesis",
+                    "suite": "SoloditPoC",
+                    "solodit": {
+                        "id": entry.get("id"),
+                        "title": entry.get("title"),
+                        "severity": entry.get("severity"),
+                        "firm": entry.get("firm"),
+                        "source_url": entry.get("source_url"),
+                        "modifications": entry.get("modifications"),
+                    },
+                    "custom_included": False,
+                    "counts": counts,
+                    "findings": [],
+                    "finding_count": 0,
+                }
+            finally:
+                if work and work.exists():
+                    shutil.rmtree(work, ignore_errors=True)
+        except Exception as e:
+            return {"ok": False, "error": str(e), "attestation": "FORK_ERROR"}
 
     addr = (address or "").strip()
     if addr and not ADDRESS_RE.match(addr):
@@ -236,7 +333,7 @@ def run_fork(
     if not addr:
         return {
             "ok": False,
-            "error": "address required — full fork suite needs a contract 0x address",
+            "error": "address required — full fork suite needs a contract 0x address (or pass solodit_poc_id)",
             "attestation": "REJECTED_NO_ADDRESS",
         }
 
@@ -282,14 +379,26 @@ def run_fork(
         stdout = proc.stdout or ""
         stderr = proc.stderr or ""
         combined = (stdout + "\n" + stderr).strip()
-        passed = proc.returncode == 0 and ("Suite result: ok" in combined or "PASS" in combined or "passed" in combined.lower())
         # forge returns 0 on pass
-        if proc.returncode == 0:
-            passed = True
+        passed = proc.returncode == 0
         counts = _parse_forge_counts(combined)
+        # Extract clean FINDING assert messages from forge FAIL lines only
+        findings = []
+        seen = set()
+        for m in re.finditer(r"\[FAIL:\s*(FINDING:[^\]]+)\]", combined):
+            msg = re.sub(r"\s+", " ", m.group(1)).strip()
+            if msg not in seen:
+                seen.add(msg)
+                findings.append(msg[:300])
+        if passed:
+            attestation = "FORK_EXECUTED"
+        elif findings:
+            attestation = "FORK_FINDING"
+        else:
+            attestation = "FORK_FAILED"
         artifact = {
             "ok": passed,
-            "attestation": "FORK_EXECUTED" if passed else "FORK_FAILED",
+            "attestation": attestation,
             "exit_code": proc.returncode,
             "rpc_redacted": redact_rpc(rpc_url),
             "fork_block": pinned,
@@ -299,10 +408,12 @@ def run_fork(
             "stderr": stderr[-60000:],
             "solidity_sha256": hashlib.sha256((full_suite + "\n" + (custom or "")).encode()).hexdigest(),
             "command": "forge test --fork-url <RPC> --fork-block-number " + pinned + " -vvv  # FULL SUITE + optional custom",
-            "policy": "no-broadcast; fork-only; full-suite-always",
+            "policy": "no-broadcast; fork-only; full-suite-always; unauth-CALL_OK=FINDING",
             "suite": "AipFullForkSuite",
             "custom_included": bool(custom),
             "counts": counts,
+            "findings": findings,
+            "finding_count": len(findings),
         }
         return artifact
     except subprocess.TimeoutExpired:

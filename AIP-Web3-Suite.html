@@ -473,7 +473,7 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
     <div class="fork-banner" id="fork-banner">
       <div class="fork-banner-body">
         <div class="fork-banner-title" id="fork-banner-title">FORK LAB — REAL EXECUTION</div>
-        <p><strong>Address in → fork runs.</strong> Prefills from Chain Intel. Hit <strong>Run Fork</strong> — backend always executes the full 62-test suite via <code>forge test --fork-url</code>. Custom Solidity is optional. Unlock only after real <strong>FORK_EXECUTED</strong>.</p>
+        <p><strong>Address in → fork runs.</strong> Prefills from Chain Intel. Hit <strong>Run Fork</strong> for the adversarial suite, or <strong>Run Solodit PoC</strong> for a published Solodit test. Unlock after <strong>FORK_EXECUTED</strong> / <strong>FORK_SOLODIT_VERIFIED</strong>.</p>
         <div class="fork-health down" id="fork-health">BACKEND: checking…</div>
       </div>
     </div>
@@ -504,6 +504,15 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
         <button class="btn" type="button" onclick="loadForkTemplate()">Preview full suite</button>
         <button class="btn star" type="button" onclick="downloadForkArtifact()" id="fork-dl-btn" disabled>Download artifact</button>
       </div>
+      <div class="label" style="margin-top:16px">Solodit PoCs</div>
+      <div class="row" style="margin-top:8px;align-items:flex-end">
+        <div style="flex:2;min-width:220px">
+          <select class="seed" id="fork-solodit-select" style="width:100%" onchange="onSoloditSelect()"></select>
+        </div>
+        <button class="btn" type="button" onclick="loadSoloditLibrary()">↻</button>
+        <button class="btn danger" type="button" onclick="runSoloditPoC()">▶ Run Solodit PoC</button>
+      </div>
+      <div id="fork-solodit-meta" class="meta" style="margin-top:8px"></div>
       <div class="status" id="fork-run-status">Waiting for a real forge fork run.</div>
       <div class="fork-log" id="fork-log">Logs appear here after Run Fork.</div>
     </div>
@@ -635,6 +644,7 @@ function switchMode(m){
     refreshPocWithIntel();
     prefillForkFromIntel();
     refreshForkHealth();
+    loadSoloditLibrary();
   }
 }
 
@@ -1116,14 +1126,34 @@ var lastForkArtifact = null;
 
 function forkApiUrl(path){ return FORK_API + path; }
 
+async function forkFetchJson(path, opts){
+  opts = opts || {};
+  var r;
+  try{
+    r = await fetch(forkApiUrl(path), opts);
+  }catch(e){
+    throw new Error("Fork Lab unreachable at "+FORK_API+" — run ./fork-lab/start.sh ("+(e.message||e)+")");
+  }
+  var text = await r.text();
+  var j = null;
+  try{ j = text ? JSON.parse(text) : {}; }
+  catch(e){ throw new Error("Bad JSON from "+path+" (HTTP "+r.status+")"); }
+  if(!r.ok && (!j || j.ok===undefined)) throw new Error((j && j.error) || ("HTTP "+r.status+" "+path));
+  return j;
+}
+
+function forkField(id){
+  var el = document.getElementById(id);
+  return el ? String(el.value||"").trim() : "";
+}
+
 async function refreshForkHealth(){
   var el = document.getElementById("fork-health");
   var label = document.getElementById("fork-api-label");
   if(label) label.textContent = FORK_API;
   if(!el) return;
   try{
-    var r = await fetch(forkApiUrl("/api/health"));
-    var j = await r.json();
+    var j = await forkFetchJson("/api/health");
     if(j.ok){
       el.className = "fork-health up";
       el.textContent = "BACKEND UP · forge · rpc " + (j.rpc_redacted||"?") + " · block " + (j.block||"?");
@@ -1135,7 +1165,7 @@ async function refreshForkHealth(){
     }
   }catch(e){
     el.className = "fork-health down";
-    el.textContent = "BACKEND DOWN — run: python3 fork-lab/server.py  ("+e.message+")";
+    el.textContent = "BACKEND DOWN — run: ./fork-lab/start.sh  ("+e.message+")";
   }
 }
 
@@ -1151,23 +1181,22 @@ function prefillForkFromIntel(){
 }
 
 async function loadForkTemplate(){
-  var addr = (document.getElementById("fork-address").value||"").trim();
+  var addr = forkField("fork-address");
   if(!/^0x[a-fA-F0-9]{40}$/.test(addr)){
     setForkStatus("Enter contract address first — then Load template shows the full suite", "warn");
     return;
   }
   setForkStatus("Loading full suite from backend…", "warn");
+  var box = document.getElementById("fork-solidity");
   try{
-    var r = await fetch(forkApiUrl("/api/full-suite?address="+encodeURIComponent(addr)));
-    var j = await r.json();
+    var j = await forkFetchJson("/api/full-suite?address="+encodeURIComponent(addr));
     if(!j.ok && !j.solidity) throw new Error(j.error||"no suite");
-    document.getElementById("fork-solidity").value = j.solidity || "";
+    if(box) box.value = j.solidity || "";
     var inc = document.getElementById("fork-include-custom"); if(inc) inc.checked = false;
     setForkStatus("Full suite preview loaded (NOT sent on Run Fork unless you check Include custom). Address-only Run Fork is enough.", "ok");
   }catch(e){
-    // offline stub
-    document.getElementById("fork-solidity").value = "// Backend offline — Run Fork still requests full suite server-side.\n// Start: ./fork-lab/start.sh\n";
-    setForkStatus("Backend offline for template preview — Run Fork still runs full suite if server is up", "warn");
+    if(box) box.value = "// Backend offline — Run Fork still requests full suite server-side.\n// Start: ./fork-lab/start.sh\n";
+    setForkStatus("Backend offline for template preview — "+(e.message||e), "warn");
   }
 }
 
@@ -1186,7 +1215,7 @@ function setForkLog(text, kind){
 }
 
 async function inspectOnFork(){
-  var address = (document.getElementById("fork-address").value||"").trim();
+  var address = forkField("fork-address");
   if(!/^0x[a-fA-F0-9]{40}$/.test(address)){
     setForkStatus("Enter a valid 0x address to inspect", "err");
     return;
@@ -1194,21 +1223,120 @@ async function inspectOnFork(){
   setForkStatus("Inspecting on fork RPC…", "warn");
   setForkLog("cast code / balance / EIP-1967 slots…");
   try{
-    var r = await fetch(forkApiUrl("/api/fork/inspect"), {
+    var j = await forkFetchJson("/api/fork/inspect", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
         address: address,
-        rpc: (document.getElementById("fork-rpc").value||"").trim() || null,
-        block: (document.getElementById("fork-block").value||"").trim() || null
+        rpc: forkField("fork-rpc") || null,
+        block: forkField("fork-block") || null
       })
     });
-    var j = await r.json();
     setForkLog(JSON.stringify(j, null, 2), j.ok ? "ok" : "err");
     setForkStatus(j.ok ? ("Inspect OK · contract="+!!j.is_contract+" · "+(j.code_bytes||0)+" bytes") : ("Inspect failed: "+(j.error||"")), j.ok?"ok":"err");
   }catch(e){
-    setForkStatus("Backend unreachable — start fork-lab/server.py", "err");
+    setForkStatus("Fork Lab error: " + (e.message||e), "err");
     setForkLog(String(e), "err");
+  }
+}
+
+var _soloditLib = null;
+async function loadSoloditLibrary(){
+  var sel = document.getElementById("fork-solodit-select");
+  var meta = document.getElementById("fork-solodit-meta");
+  try{
+    var j = await forkFetchJson("/api/solodit/library");
+    if(!j.ok) throw new Error(j.error||"library failed");
+    _soloditLib = j;
+    if(sel){
+      sel.innerHTML = "";
+      sel.value = "";
+      (j.verified||[]).forEach(function(e){
+        var o = document.createElement("option");
+        o.value = e.id;
+        o.textContent = (e.severity||"") + " · " + (e.title||e.id).slice(0,100);
+        sel.appendChild(o);
+      });
+      if(!(j.verified||[]).length){
+        var o = document.createElement("option");
+        o.value = "";
+        o.textContent = "(empty)";
+        sel.appendChild(o);
+      } else if(!sel.value && sel.options && sel.options.length){
+        sel.value = sel.options[0].value;
+      }
+    }
+    onSoloditSelect();
+  }catch(e){
+    if(meta) meta.textContent = "Solodit library unavailable ("+e.message+")";
+    if(sel){ sel.innerHTML = ""; var o=document.createElement("option"); o.value=""; o.textContent="(backend offline)"; sel.appendChild(o); }
+  }
+}
+function onSoloditSelect(){
+  var sel = document.getElementById("fork-solodit-select");
+  if(!sel || !_soloditLib) return;
+  var id = sel.value;
+  if(!id) return;
+  var e = (_soloditLib.verified||[]).find(function(x){ return x.id===id; });
+  if(!e) return;
+  var addr = document.getElementById("fork-address");
+  var blk = document.getElementById("fork-block");
+  if(addr && e.primary_target) addr.value = e.primary_target;
+  if(blk && e.fork_block!=null) blk.value = String(e.fork_block);
+  var meta = document.getElementById("fork-solodit-meta");
+  if(meta) meta.textContent = (e.primary_target||"") + (e.fork_block ? (" @ "+e.fork_block) : "");
+}
+async function runSoloditPoC(){
+  var sel = document.getElementById("fork-solodit-select");
+  var id = sel && sel.value;
+  if(!id){ setForkStatus("Pick a Solodit PoC", "err"); return; }
+  onSoloditSelect();
+  setForkStatus("Running Solodit PoC…", "warn");
+  setForkLog("solodit_poc_id="+id);
+  try{
+    var j = await forkFetchJson("/api/fork/run", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        solodit_poc_id: id,
+        address: forkField("fork-address") || null,
+        rpc: forkField("fork-rpc") || null,
+        block: forkField("fork-block") || null
+      })
+    });
+    lastForkArtifact = j;
+    var log = [];
+    log.push("attestation: " + (j.attestation||"?"));
+    log.push("ok: " + !!j.ok);
+    log.push("suite: " + (j.suite||"SoloditPoC"));
+    if(j.solodit){
+      log.push("title: " + j.solodit.title);
+      log.push("source: " + j.solodit.source_url);
+    }
+    var c0 = j.counts || {};
+    if(c0.total!=null) log.push("results: " + (c0.passed||0) + " passed / " + (c0.failed||0) + " failed");
+    log.push("fork_block: " + (j.fork_block||"?"));
+    if(j.error) log.push("error: " + j.error);
+    log.push("");
+    log.push(j.stdout || "(empty)");
+    if(j.stderr){ log.push(""); log.push(j.stderr); }
+    setForkLog(log.join("\n"), j.ok ? "ok" : "err");
+    var dl = document.getElementById("fork-dl-btn");
+    if(dl) dl.disabled = false;
+    if(j.ok && j.attestation === "FORK_SOLODIT_VERIFIED"){
+      forkStrict = true;
+      try{ localStorage.setItem(FORK_KEY, "1"); }catch(e){}
+      try{ localStorage.setItem("aip.web3.lastForkArtifact", JSON.stringify(j)); }catch(e){}
+      applyForkUI();
+      setForkStatus("FORK_SOLODIT_VERIFIED", "ok");
+      var title = document.getElementById("fork-banner-title");
+      if(title) title.textContent = "FORK_SOLODIT_VERIFIED";
+    } else {
+      setForkStatus((j.attestation||"FAILED") + (j.error?(" — "+j.error):""), "err");
+    }
+  }catch(e){
+    setForkStatus("Fork Lab error: " + (e.message||e), "err");
+    setForkLog(String(e && e.stack || e), "err");
   }
 }
 
@@ -1216,12 +1344,13 @@ async function runRealFork(){
   var btn = document.getElementById("fork-run-btn");
   if(btn){ btn.disabled = true; btn.textContent = "Running forge…"; }
   prefillForkFromIntel();
-  var address = (document.getElementById("fork-address").value||"").trim();
+  var address = forkField("fork-address");
   if(!address){
     var d = loadIntelDossier();
     if(d && d.live && d.live.resolved) address = d.live.resolved;
     else if(d && d.target) address = d.target;
-    if(address) document.getElementById("fork-address").value = address;
+    var addrEl = document.getElementById("fork-address");
+    if(address && addrEl) addrEl.value = address;
   }
   if(!/^0x[a-fA-F0-9]{40}$/.test(address)){
     setForkStatus("Need a contract address — run Chain Intel or paste 0x…", "err");
@@ -1231,20 +1360,19 @@ async function runRealFork(){
   setForkStatus("Running full fork suite for "+address+" …", "warn");
   setForkLog("Address-only full suite → Fork Lab backend…");
   var includeCustom = !!(document.getElementById("fork-include-custom") && document.getElementById("fork-include-custom").checked);
-  var solidity = includeCustom ? ((document.getElementById("fork-solidity").value||"").trim() || null) : null;
+  var solidity = includeCustom ? (forkField("fork-solidity") || null) : null;
   var payload = {
     address: address,
     solidity: solidity,
-    rpc: (document.getElementById("fork-rpc").value||"").trim() || null,
-    block: (document.getElementById("fork-block").value||"").trim() || null
+    rpc: forkField("fork-rpc") || null,
+    block: forkField("fork-block") || null
   };
   try{
-    var r = await fetch(forkApiUrl("/api/fork/run"), {
+    var j = await forkFetchJson("/api/fork/run", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify(payload)
     });
-    var j = await r.json();
     lastForkArtifact = j;
     var log = [];
     log.push("attestation: " + (j.attestation||"?"));
@@ -1253,6 +1381,11 @@ async function runRealFork(){
     var c0 = j.counts || {};
     if(c0.total!=null) log.push("results: " + (c0.passed||0) + " passed / " + (c0.failed||0) + " failed / " + (c0.skipped||0) + " skipped / " + c0.total + " total");
     if(c0.fail_names && c0.fail_names.length) log.push("failures: " + c0.fail_names.join(", "));
+    if(j.findings && j.findings.length){
+      log.push("finding_count: " + (j.finding_count || j.findings.length));
+      log.push("findings:");
+      j.findings.slice(0,40).forEach(function(f){ log.push("  - " + f); });
+    }
     log.push("fork_block: " + (j.fork_block||"?"));
     log.push("rpc: " + (j.rpc_redacted||"?"));
     log.push("duration_ms: " + (j.duration_ms||"?"));
@@ -1278,12 +1411,16 @@ async function runRealFork(){
       setForkStatus("FORK_EXECUTED — full suite at block "+j.fork_block+" ("+j.duration_ms+"ms)"+countMsg+". Audit unlocked.", "ok");
       var title = document.getElementById("fork-banner-title");
       if(title) title.textContent = "FORK_EXECUTED — FULL SUITE";
+    } else if(j.attestation === "FORK_FINDING"){
+      setForkStatus("FORK_FINDING — unauth CALL_OK / broken invariant at block "+j.fork_block+countMsg+". Real failing asserts — see findings in log.", "err");
+      var title2 = document.getElementById("fork-banner-title");
+      if(title2) title2.textContent = "FORK_FINDING — ACCESS CONTROL BROKEN";
     } else {
       setForkStatus("Fork did NOT pass — " + (j.error || j.attestation || "FAILED") + countMsg + ". Check fail logs.", "err");
     }
   }catch(e){
-    setForkStatus("Backend unreachable. In repo: python3 fork-lab/server.py", "err");
-    setForkLog(String(e), "err");
+    setForkStatus("Fork Lab error: " + (e.message||e), "err");
+    setForkLog(String(e && e.stack || e), "err");
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = "▶ Run Fork"; }
   }
@@ -1311,12 +1448,12 @@ function applyForkUI(){
   var title = document.getElementById("fork-banner-title");
   if(forkStrict){
     if(banner) banner.classList.add("attested");
-    if(title) title.textContent = "FORK_EXECUTED — REAL";
+    if(title && title.textContent.indexOf("FORK_SOLODIT") < 0) title.textContent = "FORK ATTESTED";
   } else {
     if(banner) banner.classList.remove("attested");
     if(title) title.textContent = "FORK LAB — REAL EXECUTION";
   }
-  renderAuditChrome();
+  try{ renderAuditChrome(); }catch(e){ console.warn("renderAuditChrome", e); }
   document.querySelectorAll(".gated").forEach(function(el){
     if(forkStrict){
       el.classList.remove("locked");
@@ -1336,10 +1473,8 @@ function applyForkUI(){
 }
 
 function onForkAttest(){
-  // Checkbox theater removed — only Run Fork can unlock.
-  setAuditStatusMsg("Use Run Fork — checklists/attestation checkbox do not unlock PoCs", "warn");
-  var cb = document.getElementById("fork-attest");
-  if(cb) cb.checked = !!forkStrict;
+  // Checkbox theater removed — only Run Fork / Solodit PoC can unlock.
+  setAuditStatusMsg("Use Run Fork or Run Solodit PoC — checklists do not unlock", "warn");
 }
 
 function ackForkBanner(){
@@ -1795,6 +1930,7 @@ function exportBvetReport(){
 
 function claimFinding(i){
   if(!requireFork("Claim finding")) return;
+  if(!AUDIT_TABS[i]){ setAuditStatusMsg("Unknown audit tab", "err"); return; }
   if(AUDIT_TABS[i].isBvet){
     var fe = Array.prototype.slice.call(document.querySelectorAll('input[data-fork-ev="1"]'));
     var all = fe.every(function(b){ return b.checked; });
@@ -1804,21 +1940,30 @@ function claimFinding(i){
     }
   }
   var el = document.getElementById("audit-score-"+i);
-  el.textContent = "Finding claim recorded locally as FORK_EXECUTED-eligible draft (not submitted).";
-  el.className = "status ok";
+  if(el){
+    el.textContent = "Finding claim recorded locally as FORK_EXECUTED-eligible draft (not submitted).";
+    el.className = "status ok";
+  }
   setAuditStatusMsg("Claim draft OK — still must attach real fork artifacts before bounty submit", "ok");
 }
 
 /* boot */
-renderAuditPanes();
-loadForkStrict();
-refreshForkHealth();
-prefillForkFromIntel();
-loadIntelDossier();
-renderIntelBrief();
-selectAudit(0);
-refreshPocWithIntel();
-intelClassify();
+(function bootAipWeb3(){
+  function safe(label, fn){
+    try{ return fn(); }
+    catch(e){ console.warn("[boot]", label, e); }
+  }
+  safe("renderAuditPanes", renderAuditPanes);
+  safe("loadForkStrict", loadForkStrict);
+  safe("refreshForkHealth", function(){ return refreshForkHealth(); });
+  safe("loadSoloditLibrary", function(){ return loadSoloditLibrary(); });
+  safe("prefillForkFromIntel", prefillForkFromIntel);
+  safe("loadIntelDossier", loadIntelDossier);
+  safe("renderIntelBrief", renderIntelBrief);
+  safe("selectAudit", function(){ selectAudit(0); });
+  safe("refreshPocWithIntel", refreshPocWithIntel);
+  safe("intelClassify", intelClassify);
+})();
 </script>
 </body>
 </html>

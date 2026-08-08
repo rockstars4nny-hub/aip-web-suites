@@ -1,0 +1,36 @@
+{
+  "name": "AIP Solodit Fork PoC Library",
+  "policy": "FORK_ONLY. Published Solodit PoCs. forge_verified only. No hypotheses.",
+  "source_git": "https://github.com/solodit/solodit_content",
+  "solodit_ui": "https://solodit.cyfrin.io/",
+  "severities": [
+    "Critical Risk",
+    "High Risk",
+    "Medium Risk"
+  ],
+  "verified": [
+    {
+      "id": "solodit_olympus_h03_silo_rewards",
+      "title": "[H-03] Yield cannot be harvested because wrong token is passed to Incentives Controller",
+      "severity": "High Risk",
+      "firm": "ZachObront",
+      "protocol": "OlympusDAO / SiloAMO",
+      "source_report": "reports/ZachObront/2023-06-23-OlympusDAO.md",
+      "source_url": "https://github.com/solodit/solodit_content/blob/main/reports/ZachObront/2023-06-23-OlympusDAO.md",
+      "sol_file": "pocs/solodit_olympus_h03_silo_rewards.t.sol",
+      "primary_target": "0x6c1603aB6CecF89DD60C24530DdE23F97DA3C229",
+      "addresses": [
+        "0x6c1603aB6CecF89DD60C24530DdE23F97DA3C229",
+        "0x64aa3364F17a4D01c6f1751Fd97C2BD3D7e7f1D5",
+        "0x907136B74abA7D5978341eBA903544134A66B065",
+        "0xFDdfEd73b29B8859c6AE234aD64E2841614De559",
+        "0x85A44Ff42F6B89125a541F64c77840977b0097E2"
+      ],
+      "fork_block": 17407114,
+      "chain": "ethereum",
+      "status": "forge_verified",
+      "modifications": "Added SiloIncentivesController interface; assertEq on published log values"
+    }
+  ],
+  "verified_count": 1
+}

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from runner import default_rpc, health, inspect_address, run_fork  # noqa: E402
+from solodit.library import get_entry, list_entries, load_poc_solidity  # noqa: E402
 
 HOST = os.environ.get("FORK_LAB_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FORK_LAB_PORT", "8787"))
@@ -61,11 +62,31 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "suite": "AipFullForkSuite",
-                    "note": "Every Run Fork always executes the full suite. Paste box is OPTIONAL custom extra tests.",
+                    "note": "Every Run Fork always executes the full suite. Paste box is OPTIONAL custom extra tests. For published Solodit exploit PoCs use /api/solodit/library + solodit_poc_id.",
                     "solidity": suite,
                     "custom_stub": DEFAULT_POC.format(target_addr=addr if addr.startswith("0x") else "address(0)"),
                 },
             )
+        if path == "/api/solodit/library":
+            return _json(
+                self,
+                200,
+                {
+                    "ok": True,
+                    "verified": list_entries(verified_only=True),
+                    "verified_count": len(list_entries(verified_only=True)),
+                },
+            )
+        if path.startswith("/api/solodit/poc/"):
+            poc_id = path.rsplit("/", 1)[-1]
+            entry = get_entry(poc_id)
+            if not entry:
+                return _json(self, 404, {"ok": False, "error": "unknown poc id"})
+            try:
+                src = load_poc_solidity(poc_id) if entry.get("status") == "forge_verified" else None
+            except Exception as e:
+                return _json(self, 400, {"ok": False, "error": str(e), "entry": entry})
+            return _json(self, 200, {"ok": True, "entry": entry, "solidity": src})
         return _json(self, 404, {"ok": False, "error": "not found"})
 
     def do_POST(self) -> None:
@@ -93,6 +114,7 @@ class Handler(BaseHTTPRequestHandler):
                 solidity=body.get("solidity") or None,
                 rpc=body.get("rpc") or None,
                 block=body.get("block") or None,
+                solodit_poc_id=body.get("solodit_poc_id") or None,
             )
             code = 200 if result.get("ok") or result.get("attestation") else 200
             return _json(self, code, result)
@@ -115,6 +137,7 @@ def main() -> None:
     print(f"  forge={h['forge']} cast={h['cast']} rpc_ok={h['rpc_ok']} rpc={h['rpc_redacted']}")
     print(f"  default RPC fallback: {default_rpc()}")
     print("  POST /api/fork/run  POST /api/fork/inspect  GET /api/health")
+    print("  GET  /api/solodit/library  GET /api/solodit/poc/<id>  (published Solodit PoCs)")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 
 
