@@ -45,17 +45,25 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path in ("/", "/api/health"):
             return _json(self, 200, health())
-        if path == "/api/default-poc":
-            from runner import DEFAULT_POC
+        if path == "/api/default-poc" or path == "/api/full-suite":
+            from runner import DEFAULT_POC, FULL_SUITE_PATH, render_full_suite
+            from urllib.parse import parse_qs
 
+            qs = parse_qs(urlparse(self.path).query)
+            addr = (qs.get("address") or ["0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"])[0]
+            try:
+                suite = render_full_suite(addr) if addr.startswith("0x") and len(addr) == 42 else FULL_SUITE_PATH.read_text()
+            except Exception as e:
+                return _json(self, 400, {"ok": False, "error": str(e)})
             return _json(
                 self,
                 200,
                 {
-                    "solidity": DEFAULT_POC.format(
-                        target_label="0xTARGET",
-                        target_addr="address(0)",
-                    )
+                    "ok": True,
+                    "suite": "AipFullForkSuite",
+                    "note": "Every Run Fork always executes the full suite. Paste box is OPTIONAL custom extra tests.",
+                    "solidity": suite,
+                    "custom_stub": DEFAULT_POC.format(target_addr=addr if addr.startswith("0x") else "address(0)"),
                 },
             )
         return _json(self, 404, {"ok": False, "error": "not found"})

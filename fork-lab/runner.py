@@ -24,28 +24,27 @@ BROADCAST_BAN = re.compile(
 )
 ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
+FULL_SUITE_PATH = ROOT / "templates" / "AipFullForkSuite.t.sol"
+
 DEFAULT_POC = '''// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
-
 import "forge-std/Test.sol";
-
-/// @notice AIP Fork Lab — FORK_EXECUTED evidence only. No broadcast.
-contract AipForkPoC is Test {{
-    // Target under test: {target_label}
+/// Custom PoC — runs IN ADDITION to AipFullForkSuite
+contract AipCustomPoC is Test {{
     address constant TARGET = {target_addr};
-
-    function setUp() public {{
-        // Fork is provided by: forge test --fork-url --fork-block-number
-    }}
-
-    function test_Fork_TargetHasCodeOrBalance() public view {{
-        uint256 bal = TARGET.balance;
-        uint256 codeLen = TARGET.code.length;
-        // Evidence: fork sees live state for TARGET at pinned block.
-        assertTrue(codeLen > 0 || bal > 0, "target has neither code nor balance on fork");
+    function test_Custom_TargetAlive() public view {{
+        assertGt(TARGET.code.length, 0, "custom: no code");
     }}
 }}
 '''
+
+
+def render_full_suite(target_addr: str) -> str:
+    raw = FULL_SUITE_PATH.read_text(encoding="utf-8")
+    if not ADDRESS_RE.match(target_addr):
+        raise ValueError("full suite requires a valid 0x address")
+    return raw.replace("__TARGET__", target_addr)
+
 
 
 def default_rpc() -> str:
@@ -125,7 +124,7 @@ def inspect_address(address: str, rpc: str | None = None, block: str | None = No
         code = cast_out(["code", addr])
         bal = cast_out(["balance", addr])
         # EIP-1967 implementation / admin slots
-        impl_slot = "0x360894a13ba1a3210667c828492db98dca3e2076adc198dce132a76e8c5c1"
+        impl_slot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
         admin_slot = "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
         impl = cast_out(["storage", addr, impl_slot])
         admin = cast_out(["storage", addr, admin_slot])
@@ -146,11 +145,12 @@ def inspect_address(address: str, rpc: str | None = None, block: str | None = No
         return {"ok": False, "error": str(e), "rpc_redacted": redact_rpc(rpc_url)}
 
 
-def _prepare_workspace(solidity: str) -> Path:
+def _prepare_workspace(*, full_suite: str, custom: str | None = None) -> Path:
     if not TEMPLATE.exists():
         raise RuntimeError(f"missing template at {TEMPLATE}")
+    if not FULL_SUITE_PATH.exists():
+        raise RuntimeError(f"missing full suite at {FULL_SUITE_PATH}")
     work = Path(tempfile.mkdtemp(prefix="aip-fork-"))
-    # copy template minus heavy out/cache if any
     for name in ("foundry.toml", "lib", "src", "test", "script"):
         src = TEMPLATE / name
         dst = work / name
@@ -158,15 +158,45 @@ def _prepare_workspace(solidity: str) -> Path:
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("out", "cache", ".git"))
         elif src.exists():
             shutil.copy2(src, dst)
-    # wipe default tests; write ours
     test_dir = work / "test"
     if test_dir.exists():
         for f in test_dir.glob("*.sol"):
             f.unlink()
     else:
         test_dir.mkdir(parents=True)
-    (test_dir / "AipForkPoC.t.sol").write_text(solidity, encoding="utf-8")
+    (test_dir / "AipFullForkSuite.t.sol").write_text(full_suite, encoding="utf-8")
+    if custom and custom.strip():
+        (test_dir / "AipCustomPoC.t.sol").write_text(custom, encoding="utf-8")
     return work
+
+
+def _parse_forge_counts(text: str) -> dict:
+    # e.g. "1 tests passed, 0 failed, 0 skipped (1 total tests)"
+    # or "Suite result: ok. 1 passed; 0 failed; 0 skipped"
+    passed = failed = skipped = total = None
+    m = re.search(
+        r"(\d+)\s+tests?\s+passed,\s+(\d+)\s+failed,\s+(\d+)\s+skipped\s+\((\d+)\s+total",
+        text,
+        re.I,
+    )
+    if m:
+        passed, failed, skipped, total = map(int, m.groups())
+    else:
+        m2 = re.search(r"(\d+)\s+passed;\s+(\d+)\s+failed;\s+(\d+)\s+skipped", text, re.I)
+        if m2:
+            passed, failed, skipped = map(int, m2.groups())
+            total = passed + failed + skipped
+    # individual results
+    pass_names = re.findall(r"\[PASS\]\s+(\S+)", text)
+    fail_names = re.findall(r"\[FAIL[^\]]*\]\s+(\S+)", text)
+    return {
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        "total": total,
+        "pass_names": pass_names,
+        "fail_names": fail_names,
+    }
 
 
 def run_fork(
@@ -175,7 +205,7 @@ def run_fork(
     solidity: str | None = None,
     rpc: str | None = None,
     block: str | int | None = None,
-    timeout: int = 240,
+    timeout: int = 600,
 ) -> dict[str, Any]:
     t0 = time.time()
     rpc_url = (rpc or default_rpc()).strip()
@@ -186,22 +216,30 @@ def run_fork(
     if addr and not ADDRESS_RE.match(addr):
         return {"ok": False, "error": "invalid address"}
 
-    sol = (solidity or "").strip()
-    if not sol:
-        target_addr = addr if addr else "address(0)"
-        if addr:
-            target_addr = addr  # checksum not required for const
-        sol = DEFAULT_POC.format(
-            target_label=addr or "unset",
-            target_addr=target_addr if addr else "address(0)",
-        )
+    if not addr:
+        return {
+            "ok": False,
+            "error": "address required — full fork suite needs a contract 0x address",
+            "attestation": "REJECTED_NO_ADDRESS",
+        }
 
-    if BROADCAST_BAN.search(sol):
+    custom = (solidity or "").strip()
+    # If UI pasted only a tiny template, still run full suite; treat paste as custom extra.
+    if custom and BROADCAST_BAN.search(custom):
         return {
             "ok": False,
             "error": "REJECTED: solidity contains broadcast helpers. FORK_EXECUTED only — no mainnet send.",
             "attestation": "REJECTED_BROADCAST",
         }
+
+    try:
+        full_suite = render_full_suite(addr)
+    except Exception as e:
+        return {"ok": False, "error": str(e), "attestation": "FORK_ERROR"}
+
+    # Avoid duplicating full suite if user pasted it wholesale
+    if custom and "contract AipFullForkSuite" in custom:
+        custom = ""
 
     # pin block if not provided
     pinned = str(block).strip() if block not in (None, "") else ""
@@ -213,7 +251,7 @@ def run_fork(
 
     work = None
     try:
-        work = _prepare_workspace(sol)
+        work = _prepare_workspace(full_suite=full_suite, custom=custom or None)
         cmd = [
             FORGE,
             "test",
@@ -222,8 +260,6 @@ def run_fork(
             "--fork-block-number",
             pinned,
             "-vvv",
-            "--match-path",
-            "test/AipForkPoC.t.sol",
         ]
         proc = _run(cmd, cwd=work, timeout=timeout)
         stdout = proc.stdout or ""
@@ -233,6 +269,7 @@ def run_fork(
         # forge returns 0 on pass
         if proc.returncode == 0:
             passed = True
+        counts = _parse_forge_counts(combined)
         artifact = {
             "ok": passed,
             "attestation": "FORK_EXECUTED" if passed else "FORK_FAILED",
@@ -241,11 +278,14 @@ def run_fork(
             "fork_block": pinned,
             "address": addr or None,
             "duration_ms": int((time.time() - t0) * 1000),
-            "stdout": stdout[-120000:],
-            "stderr": stderr[-40000:],
-            "solidity_sha256": hashlib.sha256(sol.encode()).hexdigest(),
-            "command": "forge test --fork-url <RPC> --fork-block-number " + pinned + " -vvv",
-            "policy": "no-broadcast; fork-only",
+            "stdout": stdout[-200000:],
+            "stderr": stderr[-60000:],
+            "solidity_sha256": hashlib.sha256((full_suite + "\n" + (custom or "")).encode()).hexdigest(),
+            "command": "forge test --fork-url <RPC> --fork-block-number " + pinned + " -vvv  # FULL SUITE + optional custom",
+            "policy": "no-broadcast; fork-only; full-suite-always",
+            "suite": "AipFullForkSuite",
+            "custom_included": bool(custom),
+            "counts": counts,
         }
         return artifact
     except subprocess.TimeoutExpired:
