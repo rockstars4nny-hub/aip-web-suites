@@ -7,6 +7,18 @@ Standalone browser operator consoles from **Aetherverse Intelligence Protocol (A
 | [`AIP-Web2-Suite.html`](./AIP-Web2-Suite.html) | OSINT · Pentest Matrix · **Capabilities** | Elite first-pass Web2 intel + adversarial matrix |
 | [`AIP-Web3-Suite.html`](./AIP-Web3-Suite.html) | Chain Intel · Audit Matrix · **Capabilities** | Web3 hunt OS with **FORK_EXECUTED-only** PoC gate |
 
+## Fork Lab (REAL forks — required for Audit Matrix unlock)
+
+Audit Matrix unlocks **only** after a real `forge test --fork-url` pass — not a checklist.
+
+```bash
+cd aip-web-suites
+cp .env.example .env   # set ETH_RPC_URL if you want your own provider
+./fork-lab/start.sh    # listens on http://127.0.0.1:8787
+```
+
+Then open `AIP-Web3-Suite.html` → **Audit Matrix** → paste `0x…` → **Run Fork**.
+
 ## Open
 
 Download either HTML → open in Chrome/Firefox/Edge (prefer `http://` via a local static server if your browser restricts `file://` fetches).

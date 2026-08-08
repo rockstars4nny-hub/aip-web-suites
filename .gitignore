@@ -1,0 +1,5 @@
+.env
+fork-lab/workspace-template/out/
+fork-lab/workspace-template/cache/
+**/__pycache__/
+*.pyc

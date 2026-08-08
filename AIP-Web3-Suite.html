@@ -180,6 +180,27 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
 .dtab.recommended{border-color:rgba(94,234,212,.25); box-shadow:inset 3px 0 0 var(--plasma)}
 .dtab.recommended:not(.active){color:var(--plasma)}
 
+
+.fork-runner{
+  background:rgba(12,18,32,.92); border:1px solid rgba(245,197,66,.28);
+  border-left:3px solid var(--star); border-radius:12px; padding:16px 18px; margin-bottom:16px;
+}
+.fork-runner h3{font:700 12px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--star); margin:0 0 8px}
+.fork-runner .meta{margin-bottom:12px}
+.fork-runner textarea.seed{
+  min-height:160px; font:12px/1.45 var(--mono); resize:vertical; width:100%;
+}
+.fork-log{
+  margin-top:12px; max-height:320px; overflow:auto; white-space:pre-wrap; word-break:break-word;
+  background:#070b14; border:1px solid rgba(125,211,252,.15); border-radius:8px;
+  padding:12px; font:11px/1.45 var(--mono); color:var(--dim);
+}
+.fork-log.ok{border-color:rgba(52,211,153,.4); color:#a7f3d0}
+.fork-log.err{border-color:rgba(255,107,90,.4); color:#fecaca}
+.fork-health{font:600 10px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+.fork-health.up{color:var(--plasma)}
+.fork-health.down{color:var(--nova)}
+
 /* FORK_STRICT banner */
 .fork-banner{
   display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap;
@@ -448,17 +469,40 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
         <button class="btn danger" type="button" id="intel-brief-clear" onclick="clearAuditIntel()" hidden>Clear intel context</button>
       </div>
     </div>
-    <!-- FORK_EXECUTED banner (persistent) -->
+    <!-- REAL FORK RUNNER — Foundry backend -->
     <div class="fork-banner" id="fork-banner">
       <div class="fork-banner-body">
-        <div class="fork-banner-title" id="fork-banner-title">FORK_EXECUTED ONLY</div>
-        <p><strong>FORK_EXECUTED ONLY</strong> — Claims of exploitability require Anvil/Foundry fork execution against a pinned block. Simulation-only, eth_call speculation, and mainnet broadcast PoCs are <strong>REJECTED</strong>. No mainnet exploit transactions.</p>
-        <div class="attest-box" id="attest-box">
-          <input type="checkbox" id="fork-attest" onchange="onForkAttest()">
-          <label for="fork-attest">I attest PoCs will be fork-executed (<strong>FORK_EXECUTED</strong>) on a local Anvil fork only. No mainnet exploitation.</label>
+        <div class="fork-banner-title" id="fork-banner-title">FORK LAB — REAL EXECUTION</div>
+        <p><strong>Checklists do not count.</strong> Paste a contract address and/or Solidity test, then hit <strong>Run Fork</strong>. The local Fork Lab backend executes <code>forge test --fork-url --fork-block-number</code>. Unlock happens only after a real <strong>FORK_EXECUTED</strong> pass. No mainnet broadcast.</p>
+        <div class="fork-health down" id="fork-health">BACKEND: checking…</div>
+      </div>
+    </div>
+
+    <div class="fork-runner" id="fork-runner">
+      <h3>Run Fork (Foundry)</h3>
+      <p class="meta">Backend: <code id="fork-api-label">http://127.0.0.1:8787</code> · start with <code>python3 fork-lab/server.py</code></p>
+      <div class="label">Contract address</div>
+      <input class="seed" id="fork-address" type="text" placeholder="0x…" spellcheck="false" autocomplete="off">
+      <div class="row" style="margin-top:10px">
+        <div style="flex:2;min-width:200px">
+          <div class="label">RPC URL</div>
+          <input class="seed" id="fork-rpc" type="text" placeholder="https://ethereum.publicnode.com" spellcheck="false">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="label">Block (optional)</div>
+          <input class="seed" id="fork-block" type="text" placeholder="latest → pin" spellcheck="false">
         </div>
       </div>
-      <button type="button" class="btn star" id="fork-ack-btn" onclick="ackForkBanner()" style="align-self:center">Acknowledge</button>
+      <div class="label" style="margin-top:10px">Solidity PoC (optional — default template used if empty)</div>
+      <textarea class="seed" id="fork-solidity" placeholder="// paste Foundry .t.sol here — vm.broadcast is REJECTED"></textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" type="button" id="fork-run-btn" onclick="runRealFork()">▶ Run Fork</button>
+        <button class="btn" type="button" onclick="inspectOnFork()">Inspect on fork</button>
+        <button class="btn" type="button" onclick="loadForkTemplate()">Load template</button>
+        <button class="btn star" type="button" onclick="downloadForkArtifact()" id="fork-dl-btn" disabled>Download artifact</button>
+      </div>
+      <div class="status" id="fork-run-status">Waiting for a real forge fork run.</div>
+      <div class="fork-log" id="fork-log">Logs appear here after Run Fork.</div>
     </div>
     <div id="audit-panes"></div>
   </main>
@@ -586,6 +630,8 @@ function switchMode(m){
     renderIntelBrief();
     renderAuditChrome();
     refreshPocWithIntel();
+    prefillForkFromIntel();
+    refreshForkHealth();
   }
 }
 
@@ -1046,7 +1092,190 @@ function intelExport(kind){
   a.click();
 }
 
-/* ---------- FORK_STRICT policy ---------- */
+/* ---------- FORK LAB (real forge) ---------- */
+var FORK_API = (function(){
+  try{
+    var q = new URLSearchParams(location.search).get("forkApi");
+    if(q) return q.replace(/\/$/,"");
+  }catch(e){}
+  try{
+    var s = localStorage.getItem("aip.web3.forkApi");
+    if(s) return s.replace(/\/$/,"");
+  }catch(e){}
+  return "http://127.0.0.1:8787";
+})();
+var lastForkArtifact = null;
+
+function forkApiUrl(path){ return FORK_API + path; }
+
+async function refreshForkHealth(){
+  var el = document.getElementById("fork-health");
+  var label = document.getElementById("fork-api-label");
+  if(label) label.textContent = FORK_API;
+  if(!el) return;
+  try{
+    var r = await fetch(forkApiUrl("/api/health"));
+    var j = await r.json();
+    if(j.ok){
+      el.className = "fork-health up";
+      el.textContent = "BACKEND UP · forge · rpc " + (j.rpc_redacted||"?") + " · block " + (j.block||"?");
+      var rpc = document.getElementById("fork-rpc");
+      if(rpc && !rpc.value && j.rpc_redacted && j.rpc_redacted.indexOf("***")<0) rpc.value = j.rpc_redacted;
+    } else {
+      el.className = "fork-health down";
+      el.textContent = "BACKEND DEGRADED · " + (j.error || "rpc/forge issue") + " — still try Run Fork";
+    }
+  }catch(e){
+    el.className = "fork-health down";
+    el.textContent = "BACKEND DOWN — run: python3 fork-lab/server.py  ("+e.message+")";
+  }
+}
+
+function prefillForkFromIntel(){
+  var d = loadIntelDossier();
+  var addrEl = document.getElementById("fork-address");
+  if(!addrEl) return;
+  if(d && d.target && /^0x[a-fA-F0-9]{40}$/.test(d.target) && !addrEl.value){
+    addrEl.value = d.target;
+  }
+  if(d && d.live && d.live.resolved && /^0x[a-fA-F0-9]{40}$/.test(d.live.resolved) && !addrEl.value){
+    addrEl.value = d.live.resolved;
+  }
+}
+
+function loadForkTemplate(){
+  var addr = (document.getElementById("fork-address").value||"").trim() || "address(0)";
+  var target = /^0x[a-fA-F0-9]{40}$/.test(addr) ? addr : "address(0)";
+  var label = /^0x[a-fA-F0-9]{40}$/.test(addr) ? addr : "unset";
+  document.getElementById("fork-solidity").value =
+`// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+
+/// AIP Fork Lab — FORK_EXECUTED only. No vm.broadcast.
+contract AipForkPoC is Test {
+    // Target under test: ${label}
+    address constant TARGET = ${target};
+
+    function test_Fork_TargetHasCodeOrBalance() public view {
+        uint256 bal = TARGET.balance;
+        uint256 codeLen = TARGET.code.length;
+        assertTrue(codeLen > 0 || bal > 0, "target has neither code nor balance on fork");
+    }
+}`;
+  setForkStatus("Template loaded — hit Run Fork", "warn");
+}
+
+function setForkStatus(msg, kind){
+  var el = document.getElementById("fork-run-status");
+  if(!el) return;
+  el.textContent = msg;
+  el.className = "status " + (kind||"");
+}
+
+function setForkLog(text, kind){
+  var el = document.getElementById("fork-log");
+  if(!el) return;
+  el.textContent = text || "";
+  el.className = "fork-log" + (kind ? (" "+kind) : "");
+}
+
+async function inspectOnFork(){
+  var address = (document.getElementById("fork-address").value||"").trim();
+  if(!/^0x[a-fA-F0-9]{40}$/.test(address)){
+    setForkStatus("Enter a valid 0x address to inspect", "err");
+    return;
+  }
+  setForkStatus("Inspecting on fork RPC…", "warn");
+  setForkLog("cast code / balance / EIP-1967 slots…");
+  try{
+    var r = await fetch(forkApiUrl("/api/fork/inspect"), {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        address: address,
+        rpc: (document.getElementById("fork-rpc").value||"").trim() || null,
+        block: (document.getElementById("fork-block").value||"").trim() || null
+      })
+    });
+    var j = await r.json();
+    setForkLog(JSON.stringify(j, null, 2), j.ok ? "ok" : "err");
+    setForkStatus(j.ok ? ("Inspect OK · contract="+!!j.is_contract+" · "+(j.code_bytes||0)+" bytes") : ("Inspect failed: "+(j.error||"")), j.ok?"ok":"err");
+  }catch(e){
+    setForkStatus("Backend unreachable — start fork-lab/server.py", "err");
+    setForkLog(String(e), "err");
+  }
+}
+
+async function runRealFork(){
+  var btn = document.getElementById("fork-run-btn");
+  if(btn){ btn.disabled = true; btn.textContent = "Running forge…"; }
+  setForkStatus("Running forge test --fork-url …", "warn");
+  setForkLog("Submitting to Fork Lab backend…");
+  var address = (document.getElementById("fork-address").value||"").trim();
+  var solidity = (document.getElementById("fork-solidity").value||"").trim();
+  var payload = {
+    address: address || null,
+    solidity: solidity || null,
+    rpc: (document.getElementById("fork-rpc").value||"").trim() || null,
+    block: (document.getElementById("fork-block").value||"").trim() || null
+  };
+  try{
+    var r = await fetch(forkApiUrl("/api/fork/run"), {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    var j = await r.json();
+    lastForkArtifact = j;
+    var log = [];
+    log.push("attestation: " + (j.attestation||"?"));
+    log.push("ok: " + !!j.ok);
+    log.push("fork_block: " + (j.fork_block||"?"));
+    log.push("rpc: " + (j.rpc_redacted||"?"));
+    log.push("duration_ms: " + (j.duration_ms||"?"));
+    log.push("command: " + (j.command||""));
+    if(j.error) log.push("error: " + j.error);
+    log.push("");
+    log.push("--- forge stdout ---");
+    log.push(j.stdout || "(empty)");
+    if(j.stderr){ log.push(""); log.push("--- forge stderr ---"); log.push(j.stderr); }
+    setForkLog(log.join("\n"), j.ok ? "ok" : "err");
+    var dl = document.getElementById("fork-dl-btn");
+    if(dl) dl.disabled = false;
+
+    if(j.ok && j.attestation === "FORK_EXECUTED"){
+      forkStrict = true;
+      try{ localStorage.setItem(FORK_KEY, "1"); }catch(e){}
+      try{ localStorage.setItem("aip.web3.lastForkArtifact", JSON.stringify(j)); }catch(e){}
+      applyForkUI();
+      setForkStatus("FORK_EXECUTED — real forge pass at block "+j.fork_block+" ("+j.duration_ms+"ms). Audit actions unlocked.", "ok");
+      var title = document.getElementById("fork-banner-title");
+      if(title) title.textContent = "FORK_EXECUTED — REAL";
+    } else {
+      setForkStatus("Fork did NOT pass — " + (j.error || j.attestation || "FAILED") + ". Checklists still do not count.", "err");
+    }
+  }catch(e){
+    setForkStatus("Backend unreachable. In repo: python3 fork-lab/server.py", "err");
+    setForkLog(String(e), "err");
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = "▶ Run Fork"; }
+  }
+}
+
+function downloadForkArtifact(){
+  if(!lastForkArtifact){
+    try{ lastForkArtifact = JSON.parse(localStorage.getItem("aip.web3.lastForkArtifact")||"null"); }catch(e){}
+  }
+  if(!lastForkArtifact){ setForkStatus("No artifact yet — Run Fork first", "warn"); return; }
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(lastForkArtifact,null,2)], {type:"application/json"}));
+  a.download = "aip-fork-executed.json";
+  a.click();
+}
+
+/* ---------- FORK_STRICT policy (evidence-backed only) ---------- */
 function loadForkStrict(){
   try{ forkStrict = localStorage.getItem(FORK_KEY) === "1"; }catch(e){ forkStrict = false; }
   applyForkUI();
@@ -1055,18 +1284,12 @@ function loadForkStrict(){
 function applyForkUI(){
   var banner = document.getElementById("fork-banner");
   var title = document.getElementById("fork-banner-title");
-  var box = document.getElementById("attest-box");
-  var cb = document.getElementById("fork-attest");
   if(forkStrict){
-    banner.classList.add("attested");
-    title.textContent = "FORK_EXECUTED — ATTESTED";
-    if(cb) cb.checked = true;
-    if(bannerAckSession) box.style.display = "none";
+    if(banner) banner.classList.add("attested");
+    if(title) title.textContent = "FORK_EXECUTED — REAL";
   } else {
-    banner.classList.remove("attested");
-    title.textContent = "FORK_EXECUTED ONLY";
-    box.style.display = "";
-    if(cb) cb.checked = false;
+    if(banner) banner.classList.remove("attested");
+    if(title) title.textContent = "FORK LAB — REAL EXECUTION";
   }
   renderAuditChrome();
   document.querySelectorAll(".gated").forEach(function(el){
@@ -1080,43 +1303,22 @@ function applyForkUI(){
       el.setAttribute("aria-disabled", "true");
     }
   });
-  var lockNotes = document.querySelectorAll(".lock-notice");
-  lockNotes.forEach(function(n){ n.style.display = forkStrict ? "none" : "block"; });
+  document.querySelectorAll(".lock-notice").forEach(function(n){ n.style.display = forkStrict ? "none" : "block"; });
   var poc = document.getElementById("poc-scaffold-out");
   if(poc){
     poc.style.opacity = forkStrict ? "1" : "0.45";
-    poc.style.filter = forkStrict ? "none" : "blur(0.3px)";
   }
 }
 
 function onForkAttest(){
+  // Checkbox theater removed — only Run Fork can unlock.
+  setAuditStatusMsg("Use Run Fork — checklists/attestation checkbox do not unlock PoCs", "warn");
   var cb = document.getElementById("fork-attest");
-  if(cb && cb.checked){
-    try{ localStorage.setItem(FORK_KEY, "1"); }catch(e){}
-    forkStrict = true;
-    applyForkUI();
-    setAuditStatusMsg("Fork attestation saved · PoC actions unlocked", "ok");
-  } else {
-    try{ localStorage.removeItem(FORK_KEY); }catch(e){}
-    forkStrict = false;
-    bannerAckSession = false;
-    applyForkUI();
-    setAuditStatusMsg("Attestation cleared · PoC actions locked", "warn");
-  }
+  if(cb) cb.checked = !!forkStrict;
 }
 
 function ackForkBanner(){
-  if(!forkStrict){
-    var cb = document.getElementById("fork-attest");
-    if(cb && !cb.checked){
-      setAuditStatusMsg("Check the attestation box before acknowledging", "err");
-      return;
-    }
-    if(cb){ cb.checked = true; onForkAttest(); }
-  }
-  bannerAckSession = true;
-  document.getElementById("attest-box").style.display = "none";
-  setAuditStatusMsg("Banner acknowledged for this session (policy remains FORK_EXECUTED)", "ok");
+  setAuditStatusMsg("Acknowledge does nothing — hit Run Fork for FORK_EXECUTED", "warn");
 }
 
 function setAuditStatusMsg(msg, kind){
@@ -1128,8 +1330,9 @@ function setAuditStatusMsg(msg, kind){
 
 function requireFork(actionLabel){
   if(forkStrict) return true;
-  setAuditStatusMsg("LOCKED — attest FORK_EXECUTED before: "+actionLabel, "err");
-  document.getElementById("fork-banner").scrollIntoView({behavior:"smooth", block:"nearest"});
+  setAuditStatusMsg((actionLabel||"Action") + " blocked — Run Fork must pass FORK_EXECUTED first", "err");
+  var fr = document.getElementById("fork-runner");
+  if(fr) fr.scrollIntoView({behavior:"smooth", block:"start"});
   return false;
 }
 
@@ -1428,7 +1631,7 @@ function renderAuditPanes(){
     }
 
     var lockHtml = t.gated
-      ? '<div class="lock-notice"><strong>LOCKED</strong> until fork attestation. Check the banner above: PoCs must be FORK_EXECUTED on a local Anvil fork only.</div>'
+      ? '<div class="lock-notice"><strong>LOCKED</strong> until a real Run Fork pass. Hit ▶ Run Fork above — forge test --fork-url must return FORK_EXECUTED.</div>'
       : "";
 
     var outId = t.isPoc ? ' id="poc-scaffold-out"' : "";
@@ -1584,6 +1787,9 @@ function claimFinding(i){
 /* boot */
 renderAuditPanes();
 loadForkStrict();
+refreshForkHealth();
+prefillForkFromIntel();
+loadForkTemplate();
 loadIntelDossier();
 renderIntelBrief();
 selectAudit(0);
