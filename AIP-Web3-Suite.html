@@ -916,6 +916,7 @@ async function intelRun(){
     if(ig && liveBody.length) ig.innerHTML = liveBody.join("") + ig.innerHTML;
   }
   var recs = recommendModulesFor(c.kind);
+  var tabs = gatherIntelTabs();
   lastDossier = {
     schema: "aip.web3.chain-intel.v1",
     target: raw,
@@ -926,7 +927,8 @@ async function intelRun(){
     recommended_modules: recs,
     hypotheses: hypothesesFor(c.kind),
     hunt_brief: huntBriefFor(raw, c, fp, recs),
-    live: live
+    live: live,
+    tabs: tabs
   };
   persistIntelDossier(lastDossier);
   document.getElementById("intel-summary").innerHTML =
@@ -936,8 +938,54 @@ async function intelRun(){
   jumpTo("cat-identity");
 }
 
+
+function gatherIntelTabs(){
+  var tabs = [];
+  document.querySelectorAll("#intel-results .cat").forEach(function(cat){
+    var titleEl = cat.querySelector(".cat-h");
+    var title = titleEl ? (titleEl.textContent || "").trim() : (cat.id || "section");
+    var panels = [];
+    cat.querySelectorAll(".panel").forEach(function(p){
+      var h = p.querySelector("h3");
+      var kv = p.querySelector(".kv");
+      var pname = h ? (h.textContent || "").trim() : "Panel";
+      var body = kv ? (kv.innerText || kv.textContent || "").trim() : (p.innerText || "").trim();
+      if(h && body.indexOf(pname) === 0){
+        body = body.slice(pname.length).replace(/^\s+/, "");
+      }
+      if(pname || body) panels.push({ title: pname, body: body });
+    });
+    tabs.push({ id: cat.id || "", title: title, panels: panels });
+  });
+  return tabs;
+}
+
+function intelTabsToMarkdown(tabs){
+  var lines = [];
+  (tabs || []).forEach(function(tab){
+    lines.push("## " + (tab.title || tab.id || "Section"));
+    lines.push("");
+    (tab.panels || []).forEach(function(p){
+      lines.push("### " + (p.title || "Panel"));
+      lines.push("");
+      lines.push(p.body || "");
+      lines.push("");
+    });
+  });
+  return lines;
+}
+
 function intelExport(kind){
   if(!lastDossier) return;
+  // Always refresh tabs from DOM so export includes every category currently shown
+  try{
+    var liveTabs = gatherIntelTabs();
+    if(liveTabs && liveTabs.length){
+      lastDossier.tabs = liveTabs;
+      persistIntelDossier(lastDossier);
+    }
+  }catch(e){}
+  var tabs = lastDossier.tabs || [];
   var body, name, type;
   if(kind === "json"){
     body = JSON.stringify(lastDossier, null, 2);
@@ -947,34 +995,48 @@ function intelExport(kind){
     var recNames = (lastDossier.recommended_modules || []).map(function(i){
       return (AUDIT_TABS[i] && AUDIT_TABS[i].title) || ("Module "+(i+1));
     });
-    body = [
+    var lines = [
       "# AIP Web3 Chain Intel",
       "",
       "- target: `"+lastDossier.target+"`",
-      "- class: "+lastDossier.class.label,
-      "- fingerprint: "+lastDossier.fingerprint,
-      "- at: "+lastDossier.generated_at,
-      "- ROE: "+lastDossier.roe,
+      "- class: "+((lastDossier.class && lastDossier.class.label) || ""),
+      "- fingerprint: "+(lastDossier.fingerprint || ""),
+      "- at: "+(lastDossier.generated_at || ""),
+      "- ROE: "+(lastDossier.roe || ""),
+      "- tabs: "+tabs.length,
       "",
       "## Hypotheses"
-    ].concat((lastDossier.hypotheses || []).map(function(h){ return "- "+h; })).concat([
-      "",
-      "## Recommended Audit Matrix modules"
-    ]).concat(recNames.map(function(n){ return "- "+n; })).concat([
-      "",
-      "## Hunt brief",
-      "```",
-      lastDossier.hunt_brief || "",
-      "```",
-      "",
-      "## Next",
-      "- Send to Audit Matrix (in-suite handoff)",
-      "- Verified source",
-      "- Entrypoint map",
-      "- Fork PoC (FORK_EXECUTED only)",
-      "- BVET gates",
-      ""
-    ]).join("\n");
+    ];
+    (lastDossier.hypotheses || []).forEach(function(h){ lines.push("- "+h); });
+    lines.push("");
+    lines.push("## Recommended Audit Matrix modules");
+    recNames.forEach(function(n){ lines.push("- "+n); });
+    lines.push("");
+    lines.push("## Hunt brief");
+    lines.push("```");
+    lines.push(lastDossier.hunt_brief || "");
+    lines.push("```");
+    lines.push("");
+    if(lastDossier.live && (lastDossier.live.resolved || lastDossier.live.isContract != null || (lastDossier.live.sources||[]).length)){
+      lines.push("## Live lookups");
+      lines.push("");
+      if(lastDossier.live.resolved) lines.push("- ENS resolve: `"+lastDossier.live.resolved+"`");
+      if(lastDossier.live.isContract != null) lines.push("- bytecode: "+(lastDossier.live.isContract ? ("contract ~"+ (lastDossier.live.codeBytes||0) +" bytes") : "EOA / no code"));
+      if(lastDossier.live.blockscout){
+        lines.push("- explorer: "+(lastDossier.live.blockscout.name||"unnamed")+" · contract="+!!lastDossier.live.blockscout.is_contract);
+      }
+      if((lastDossier.live.sources||[]).length) lines.push("- sources: "+lastDossier.live.sources.join(", "));
+      lines.push("");
+    }
+    lines = lines.concat(intelTabsToMarkdown(tabs));
+    lines.push("## Next");
+    lines.push("- Send to Audit Matrix (in-suite handoff)");
+    lines.push("- Verified source");
+    lines.push("- Entrypoint map");
+    lines.push("- Fork PoC (FORK_EXECUTED only)");
+    lines.push("- BVET gates");
+    lines.push("");
+    body = lines.join("\n");
     name = "aip-web3-intel.md";
     type = "text/markdown";
   }
