@@ -775,6 +775,56 @@ function jumpTo(id){
   if(el) el.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
+
+async function intelLiveEnrich(raw, c){
+  var live = { sources: [] };
+  try{
+    if(c.kind === 'ens' || (c.kind === 'protocol' && /\.eth$/i.test(raw))){
+      var er = await fetch('https://api.ensideas.com/ens/resolve/' + encodeURIComponent(raw.replace(/\.eth$/i,'') + '.eth'));
+      if(er.ok){
+        var ej = await er.json();
+        if(ej && (ej.address || ej.addr)){
+          live.resolved = ej.address || ej.addr;
+          live.sources.push('ensideas');
+        }
+      }
+    }
+  }catch(e){}
+  try{
+    if(c.kind === 'address' || live.resolved){
+      var addr = live.resolved || raw;
+      // public eth RPC via llama - may CORS; try cloudflare eth
+      var rr = await fetch('https://cloudflare-eth.com', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({jsonrpc:'2.0', id:1, method:'eth_getCode', params:[addr, 'latest']})
+      });
+      if(rr.ok){
+        var rj = await rr.json();
+        var code = (rj && rj.result) || '0x';
+        live.isContract = !!(code && code !== '0x' && code !== '0x0');
+        live.codeBytes = code && code !== '0x' ? Math.max(0, (code.length-2)/2) : 0;
+        live.sources.push('cloudflare-eth');
+      }
+    }
+  }catch(e){}
+  try{
+    if(c.kind === 'address' || live.resolved){
+      var a2 = live.resolved || raw;
+      var br = await fetch('https://api.blockscout.com/api/v2/addresses/' + encodeURIComponent(a2));
+      if(br.ok){
+        var bj = await br.json();
+        live.blockscout = {
+          is_contract: !!(bj.is_contract),
+          name: bj.name || (bj.token && bj.token.name) || '',
+          hash: bj.hash || a2
+        };
+        live.sources.push('blockscout');
+      }
+    }
+  }catch(e){}
+  return live;
+}
+
 async function intelRun(){
   var raw = document.getElementById("intel-seed").value.trim();
   var c = classify(raw);
@@ -853,6 +903,18 @@ async function intelRun(){
     panel("Next actions", "1) Pull verified source\n2) Slither + manual entrypoints\n3) Fork PoC on Anvil (FORK_EXECUTED)\n4) BVET before submit")
   ].join(""));
 
+  document.getElementById("intel-status").textContent = "LIVE LOOKUPS…";
+  var live = {};
+  try{ live = await intelLiveEnrich(raw, c); }catch(e){ live = {sources:[]}; }
+  if(live && (live.resolved || live.isContract != null || live.blockscout)){
+    var liveBody = [];
+    if(live.resolved) liveBody.push(panel("ENS resolve", live.resolved));
+    if(live.isContract != null) liveBody.push(panel("Bytecode", live.isContract ? ("Contract · ~"+live.codeBytes+" bytes") : "EOA / no code"));
+    if(live.blockscout) liveBody.push(panel("Explorer", (live.blockscout.name||"unnamed")+" · contract="+!!live.blockscout.is_contract));
+    if(live.sources && live.sources.length) liveBody.push(panel("Live sources", live.sources.join(", ")));
+    var ig = document.getElementById("grid-identity");
+    if(ig && liveBody.length) ig.innerHTML = liveBody.join("") + ig.innerHTML;
+  }
   var recs = recommendModulesFor(c.kind);
   lastDossier = {
     schema: "aip.web3.chain-intel.v1",
@@ -863,7 +925,8 @@ async function intelRun(){
     roe: "authorized-scope; fork-only-validation; no-mainnet-harm",
     recommended_modules: recs,
     hypotheses: hypothesesFor(c.kind),
-    hunt_brief: huntBriefFor(raw, c, fp, recs)
+    hunt_brief: huntBriefFor(raw, c, fp, recs),
+    live: live
   };
   persistIntelDossier(lastDossier);
   document.getElementById("intel-summary").innerHTML =

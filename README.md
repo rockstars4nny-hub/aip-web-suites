@@ -9,7 +9,27 @@ Standalone browser operator consoles from **Aetherverse Intelligence Protocol (A
 
 ## Open
 
-Download either HTML → open in Chrome/Firefox/Edge. No install. No backend required for core UI.
+Download either HTML → open in Chrome/Firefox/Edge (prefer `http://` via a local static server if your browser restricts `file://` fetches).
+
+```bash
+python3 -m http.server 8080
+# then open http://127.0.0.1:8080/AIP-Web2-Suite.html
+```
+
+No install. **No backend required** for core collection / export / matrix tooling.
+
+### Web2 standalone behavior
+
+- Public API fallbacks: Google DNS, Shodan InternetDB, RDAP WHOIS, explorer/link modules, local export
+- Optional API keys unlock deeper coverage when a proxy is present
+- **Send to Pentest Matrix** hands OSINT context into TAP (target, CVEs, engagement fields)
+- HTML / TXT / JSON export and printable Gov report work fully client-side
+
+### Web3 handoff
+
+- **Send to Audit Matrix** loads Chain Intel dossier (target, hypotheses, recommended modules, PoC scaffold)
+- Live lookups (ENS / bytecode / explorer) run when public endpoints allow CORS
+- Audit Matrix still enforces **FORK_EXECUTED only** before PoC unlock
 
 ## Web3 rigor
 

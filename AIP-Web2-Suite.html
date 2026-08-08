@@ -344,6 +344,22 @@
   #cici-app .type-badge{text-align:center}
   #cici-app .dr-k{min-width:90px}
 }
+
+/* CICI → TAP handoff */
+.ci-handoff{
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;
+  margin-top:14px; padding:12px 14px;
+  background:rgba(0,255,65,.04); border:1px solid rgba(0,192,50,.28);
+  border-left:3px solid #00c032; border-radius:8px;
+}
+.ci-handoff p{margin:0; flex:1; min-width:200px; font-size:.68rem; color:var(--subtext); line-height:1.5}
+.ci-handoff p strong{color:var(--cream)}
+.ci-standalone-pill{
+  display:inline-flex; align-items:center; gap:.35rem;
+  font-size:.52rem; letter-spacing:.08em; text-transform:uppercase;
+  color:#00a028; border:1px solid rgba(0,160,40,.35); padding:.2rem .55rem; border-radius:999px;
+  margin-left:.5rem;
+}
 </style>
 
 <!-- ══════════════════════════════════════════════════════════════
@@ -841,7 +857,7 @@ body::before {
     <span class="hdr-logo-name">AIP WEB2</span>
     <span class="hdr-logo-sub">OSINT · INFRASTRUCTURE · EXPOSURE · PEOPLE</span>
   </div>
-  <div class="hdr-status" id="hdr-status">READY</div>
+  <div class="hdr-status" id="hdr-status">READY</div><span class="ci-standalone-pill" title="Public API fallbacks when /api proxy is absent">STANDALONE</span>
   <div class="hdr-right">
     <button class="hdr-btn" onclick="ciReset()">CLEAR ✕</button>
   </div>
@@ -953,6 +969,10 @@ body::before {
         <div class="cat-panels-grid" id="cat-financial-panels"></div>
       </div>
     </div>
+    <div class="ci-handoff" id="ci-handoff">
+      <p><strong>Package ready.</strong> Push this target into Pentest Matrix — CVE lookup, vuln map, and report findings will seed from OSINT context.</p>
+      <button class="run-btn" type="button" onclick="sendToTapMatrix()" style="font-size:.62rem;padding:.45rem 1rem;border-color:#00c032;color:#00c032">Send to Pentest Matrix →</button>
+    </div>
     <div style="display:flex;gap:.6rem;margin-top:.75rem;flex-wrap:wrap">
       <div style="display:flex;gap:.35rem;flex-wrap:wrap">
         <button class="run-btn" id="export-html" onclick="ciExport('html')" style="font-size:.58rem;padding:.38rem .9rem">⬇ HTML REPORT</button>
@@ -1049,7 +1069,9 @@ body::before {
     </div>
     <div>
       <!-- TAB 0: CVE LOOKUP -->
-      <div class="panel active" id="tp0">
+      
+<div id="tap-intel-brief" hidden style="margin:12px 16px;padding:10px 12px;border:1px solid rgba(0,192,50,.3);border-left:3px solid #00c032;background:rgba(0,255,65,.04);font-size:.68rem;color:#8fd88f;line-height:1.45"></div>
+<div class="panel active" id="tp0">
         <div class="input-row">
           <div class="field" style="flex:2"><label>CVE ID / Keyword / CPE / Vendor</label><input id="cve-in" type="text" placeholder="CVE-2024-1234  or  apache  or  log4j  or  nginx 1.18"></div>
           <div class="field" style="min-width:130px"><label>Results</label><select id="cve-limit"><option value="5">5 results</option><option value="10" selected>10 results</option><option value="20">20 results</option></select></div>
@@ -1426,6 +1448,275 @@ function fetchT(url, opts, ms){
   var fetchOpts = controller ? Object.assign({signal:controller.signal}, opts||{}) : (opts||{});
   return fetch(url, fetchOpts).then(function(r){ if(timer) clearTimeout(timer); return r; }).catch(function(e){ if(timer) clearTimeout(timer); throw e; });
 }
+
+/* ══ STANDALONE /api ROUTER — makes suite work without backend ══ */
+var _nativeFetch = (typeof window !== 'undefined' && window.fetch) ? window.fetch.bind(window) : null;
+var CI_DOSSIER_KEY = 'aip.web2.intelDossier';
+var lastCiDossier = null;
+
+function ciParseQs(url){
+  var out = {}, i = String(url).indexOf('?');
+  if(i < 0) return out;
+  String(url).slice(i + 1).split('&').forEach(function(p){
+    if(!p) return;
+    var kv = p.split('=');
+    var k = decodeURIComponent(kv[0] || '');
+    var v = decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+    out[k] = v;
+  });
+  return out;
+}
+
+function ciJsonResponse(obj, status){
+  return new Response(JSON.stringify(obj), {
+    status: status || 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function ciTextResponse(text, status, type){
+  return new Response(text, {
+    status: status || 200,
+    headers: { 'Content-Type': type || 'text/plain' }
+  });
+}
+
+function ciBlobResponse(blob, status, type){
+  return new Response(blob, {
+    status: status || 200,
+    headers: { 'Content-Type': type || blob.type || 'application/octet-stream' }
+  });
+}
+
+async function ciFetchDirect(url, init){
+  return _nativeFetch(url, init || {});
+}
+
+async function ciFetchCors(url, init){
+  try{
+    var r = await ciFetchDirect(url, init);
+    if(r && r.ok) return r;
+  }catch(e){}
+  var proxied = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+  return ciFetchDirect(proxied, { method: 'GET' });
+}
+
+async function ciLocalExportFromInit(init){
+  var payload = {};
+  try{ payload = JSON.parse((init && init.body) || '{}'); }catch(e){ payload = {}; }
+  var fmt = (payload.fmt || 'html').toLowerCase();
+  var seed = payload.seed || 'target';
+  var safe = String(seed).replace(/[^a-z0-9._-]+/gi, '_');
+  var body, type, filename;
+  if(fmt === 'json'){
+    body = JSON.stringify(payload, null, 2);
+    type = 'application/json';
+    filename = 'AIP_Web2_Report_' + safe + '.json';
+  } else if(fmt === 'txt'){
+    var lines = ['AIP Web2 OSINT Report', 'Target: ' + seed, 'Type: ' + (payload.type || ''), 'Verdict: ' + (payload.verdict || ''), 'Score: ' + (payload.score || 0), 'At: ' + (payload.ts || ''), ''];
+    (payload.results || []).forEach(function(cat){
+      lines.push('## ' + cat.category);
+      (cat.panels || []).forEach(function(p){
+        lines.push('### ' + p.title);
+        lines.push(p.text || '');
+        lines.push('');
+      });
+    });
+    body = lines.join('\n');
+    type = 'text/plain';
+    filename = 'AIP_Web2_Report_' + safe + '.txt';
+  } else {
+    // html + pdf path use rich HTML
+    var parts = [];
+    parts.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIP Web2 Report — ' + seed.replace(/[<>]/g,'') + '</title>');
+    parts.push('<style>body{font:14px/1.5 system-ui,sans-serif;max-width:900px;margin:24px auto;padding:0 16px;color:#111}h1{font-size:22px}h2{font-size:16px;margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:6px}h3{font-size:14px;margin:16px 0 6px;color:#333}pre{white-space:pre-wrap;background:#f6f6f6;padding:10px;border-radius:6px;font-size:12px}.meta{color:#555;font-size:13px}@media print{body{margin:0}}</style></head><body>');
+    parts.push('<h1>AIP Web2 Suite — OSINT Report</h1>');
+    parts.push('<div class="meta"><div><strong>Target:</strong> ' + String(seed).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];}) + '</div>');
+    parts.push('<div><strong>Type:</strong> ' + (payload.type || '') + ' · <strong>Verdict:</strong> ' + (payload.verdict || '') + ' · <strong>Score:</strong> ' + (payload.score || 0) + '</div>');
+    parts.push('<div><strong>Generated:</strong> ' + (payload.ts || new Date().toLocaleString()) + '</div></div>');
+    (payload.results || []).forEach(function(cat){
+      parts.push('<h2>' + String(cat.category || '').replace(/[<>]/g,'') + '</h2>');
+      (cat.panels || []).forEach(function(p){
+        parts.push('<h3>' + String(p.title || '').replace(/[<>]/g,'') + '</h3>');
+        parts.push('<pre>' + String(p.text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre>');
+      });
+    });
+    parts.push('<p class="meta">Authorized use only · FORK/ROE applies to any follow-on testing · AIP</p></body></html>');
+    body = parts.join('');
+    type = 'text/html';
+    filename = 'AIP_Web2_Report_' + safe + (fmt === 'pdf' ? '_GovPrint.html' : '.html');
+  }
+  var blob = new Blob([body], { type: type });
+  // Attach filename hint via custom header simulation — callers use blob only
+  var resp = ciBlobResponse(blob, 200, type);
+  resp._aipFilename = filename;
+  return resp;
+}
+
+async function ciRouteApi(url, init){
+  init = init || {};
+  var path = String(url).split('?')[0];
+  var q = ciParseQs(url);
+
+  // Prefer real local backend when present
+  try{
+    var local = await ciFetchDirect(url, init);
+    if(local && local.ok) return local;
+  }catch(e){}
+
+  if(path === '/api/export' || path === '/api/export/pdf'){
+    return ciLocalExportFromInit(init);
+  }
+
+  if(path === '/api/dns'){
+    var g = 'https://dns.google/resolve?name=' + encodeURIComponent(q.name || '') + '&type=' + encodeURIComponent(q.type || 'A');
+    return ciFetchDirect(g);
+  }
+  if(path === '/api/whois'){
+    return ciFetchCors('https://rdap.org/domain/' + encodeURIComponent(q.domain || ''));
+  }
+  if(path === '/api/shodan/internetdb'){
+    return ciFetchDirect('https://internetdb.shodan.io/' + encodeURIComponent(q.ip || ''));
+  }
+  if(path === '/api/shodan/host'){
+    var sKey = (init.headers && (init.headers['x-shodan-key'] || init.headers['X-Shodan-Key'])) || '';
+    if(sKey){
+      try{
+        return await ciFetchCors('https://api.shodan.io/shodan/host/' + encodeURIComponent(q.ip || '') + '?key=' + encodeURIComponent(sKey));
+      }catch(e){}
+    }
+    return ciJsonResponse({ error: 'shodan-key-or-cors' }, 200);
+  }
+  if(path === '/api/crt' || path === '/api/crt/subdomain'){
+    var dom = q.domain || q.q || '';
+    var crtUrl = 'https://crt.sh/?q=' + encodeURIComponent('%.' + dom) + '&output=json';
+    if(path === '/api/crt') crtUrl = 'https://crt.sh/?q=' + encodeURIComponent(dom) + '&output=json';
+    try{
+      var cr = await ciFetchCors(crtUrl);
+      if(cr && cr.ok) return cr;
+    }catch(e){}
+    return ciJsonResponse([], 200);
+  }
+  if(path === '/api/bgpview/ip'){
+    try{
+      var br = await ciFetchCors('https://api.bgpview.io/ip/' + encodeURIComponent(q.ip || ''));
+      if(br && br.ok) return br;
+    }catch(e){}
+    return ciJsonResponse({ status: 'error' }, 200);
+  }
+  if(path === '/api/ssllabs'){
+    // SSL Labs is async + CORS-hostile; return empty so UI falls through to crt/link path
+    return ciJsonResponse({}, 200);
+  }
+  if(path.indexOf('/api/vt/') === 0){
+    return ciJsonResponse({ error: 'vt-requires-backend-or-cors' }, 200);
+  }
+  if(path === '/api/abuse'){
+    return ciJsonResponse({ data: null }, 200);
+  }
+  if(path === '/api/hibp/breaches'){
+    return new Response('', { status: 404 });
+  }
+  if(path === '/api/ransomware'){
+    try{
+      var rw = await ciFetchCors('https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json');
+      if(rw && rw.ok) return rw;
+    }catch(e){}
+    return ciJsonResponse([], 200);
+  }
+  if(path.indexOf('/api/hackertarget/') === 0){
+    var ht = path.split('/').pop();
+    var htUrl = 'https://api.hackertarget.com/' + ht + '/?q=' + encodeURIComponent(q.q || '');
+    try{
+      var htr = await ciFetchCors(htUrl);
+      if(htr && htr.ok) return htr;
+    }catch(e){}
+    return ciTextResponse('error', 200);
+  }
+  if(path === '/api/ai'){
+    return ciJsonResponse({ assessment: '' }, 503);
+  }
+  if(path.indexOf('/api/github/') === 0){
+    // leave to caller's direct fallback when using apiFetch; return fail here
+    return ciJsonResponse({}, 404);
+  }
+  if(path.indexOf('/api/reddit/') === 0){
+    return ciJsonResponse({}, 404);
+  }
+  if(path === '/api/numverify' || path.indexOf('/api/') === 0){
+    return ciJsonResponse({ error: 'standalone-unavailable', path: path }, 200);
+  }
+  return ciFetchDirect(url, init);
+}
+
+if(_nativeFetch){
+  window.fetch = function(input, init){
+    var url = (typeof input === 'string') ? input : (input && input.url);
+    if(url && String(url).indexOf('/api/') === 0){
+      return ciRouteApi(String(url), init);
+    }
+    return _nativeFetch(input, init);
+  };
+}
+
+function persistCiDossier(d){
+  lastCiDossier = d;
+  try{ localStorage.setItem(CI_DOSSIER_KEY, JSON.stringify(d)); }catch(e){}
+}
+function loadCiDossier(){
+  if(lastCiDossier) return lastCiDossier;
+  try{
+    var raw = localStorage.getItem(CI_DOSSIER_KEY);
+    if(raw) lastCiDossier = JSON.parse(raw);
+  }catch(e){}
+  return lastCiDossier;
+}
+function sendToTapMatrix(){
+  var d = _d && _d.seed ? _d : loadCiDossier();
+  if(!d || !d.seed){
+    alert('Run OSINT collection first.');
+    return;
+  }
+  var dossier = {
+    schema: 'aip.web2.osint.v1',
+    target: d.seed,
+    type: d.type || '',
+    domain: d.domain || '',
+    ips: d.ips || [],
+    ports: d.ports || [],
+    vulns: d.vulns || [],
+    riskScore: d.riskScore || 0,
+    generated_at: new Date().toISOString(),
+    recommended_tabs: [0, 1, 12, 13]
+  };
+  if(d.vulns && d.vulns.length) dossier.recommended_tabs = [0, 13, 1, 12];
+  persistCiDossier(dossier);
+  switchMode('tap');
+  // seed engagement + CVE box
+  var eng = tapGetEl('eng-target'); if(eng) eng.value = d.domain || d.seed;
+  var ename = tapGetEl('eng-name'); if(ename && !ename.value) ename.value = 'OSINT-' + (d.domain || d.seed).slice(0, 24);
+  var cveIn = tapGetEl('cve-in');
+  if(cveIn){
+    if(d.vulns && d.vulns[0]) cveIn.value = d.vulns[0];
+    else if(d.domain) cveIn.value = d.domain.split('.')[0];
+    else cveIn.value = d.seed;
+  }
+  tapSelectTab((d.vulns && d.vulns.length) ? 0 : 1);
+  tapNotify('Loaded OSINT → ' + d.seed, 'var(--tap-green)');
+  // inject brief into vuln map surface note if present
+  var note = tapGetEl('tap-intel-brief');
+  if(note){
+    note.hidden = false;
+    note.innerHTML = '<strong>OSINT context:</strong> ' + (d.seed||'') +
+      ' · type ' + (d.type||'') +
+      (d.domain ? ' · domain ' + d.domain : '') +
+      ((d.ips&&d.ips[0]) ? ' · ip ' + d.ips[0] : '') +
+      ((d.ports&&d.ports.length) ? ' · ports ' + d.ports.slice(0,8).join(',') : '') +
+      ((d.vulns&&d.vulns.length) ? ' · CVEs ' + d.vulns.slice(0,5).join(', ') : '') +
+      ' · risk ' + (d.riskScore||0);
+  }
+}
+
 function gset(id,h){ var e=gel(id); if(e) e.innerHTML=h||''; }
 function row(label,val,col){ if(val===undefined||val===null||val==='') return ''; return '<div class="dr"><span class="dr-k" style="color:'+(col||'var(--subtext)')+'">'+label+'</span><span class="dr-v">'+val+'</span></div>'; }
 function dhead(t,col){ return '<div class="dr-head" style="color:'+(col||'var(--subtext)')+'">'+t+'</div>'; }
@@ -1522,6 +1813,7 @@ ciStatus('◈ AI ASSESSMENT…',98); try{ await ci_ai(); }catch(e){ console.warn
 var count=Object.keys(_panels).length; ciStatus('✓ COMPLETE — '+count+' modules returned data',100);
 var btn2=gel('ci-run-btn'); if(btn2) btn2.disabled=false;
 var hdr=gel('hdr-status'); if(hdr) hdr.textContent='PACKAGE READY ('+count+')';
+persistCiDossier({schema:'aip.web2.osint.v1',target:_d.seed,type:_d.type,domain:_d.domain,ips:_d.ips||[],ports:_d.ports||[],vulns:_d.vulns||[],riskScore:_d.riskScore||0,generated_at:new Date().toISOString(),panelCount:count});
 }
 async function ci_dns(){ var seed=_d.seed,type=_d.type; var domain=type==='email'?seed.split('@')[1]:type==='domain'?seed:null; if(!domain) return; _d.domain=domain; var results=await Promise.all([fetchT('/api/dns?name='+domain+'&type=A',null,5000).then(function(r){return r.json();}).catch(function(){return {};}),fetchT('/api/dns?name='+domain+'&type=MX',null,5000).then(function(r){return r.json();}).catch(function(){return {};}),fetchT('/api/dns?name='+domain+'&type=NS',null,5000).then(function(r){return r.json();}).catch(function(){return {};})]); var ips=(results[0].Answer||[]).filter(function(r){return r.type===1;}).map(function(r){return r.data;}); _d.ips=ips; _d.mxRecords=(results[1].Answer||[]).map(function(r){return r.data;}); var nsRecs=(results[2].Answer||[]).slice(0,2).map(function(r){return r.data;}).join(', '); var h=dhead('DNS RECORDS','var(--acc2)'); h+=row('DOMAIN',domain,'var(--hot)'); ips.forEach(function(ip,i){ h+=row('A '+(i+1),ip+'  '+pivot(ip),'#818cf8'); }); if(_d.mxRecords.length){ var mx=_d.mxRecords[0].replace(/^\d+\s+/,'').trim(); h+=row('MX',mx+' '+pivot(mx),'var(--subtext)'); } if(nsRecs) h+=row('NS',nsRecs,'var(--subtext)'); ciAppend('ci-identity',h); }
 async function ci_whois(){ var domain=_d.domain; if(!domain) return; var r=await fetch('/api/whois?domain='+domain).then(function(r){return r.json();}).catch(function(){return null;}); if(!r) return; var registrar=''; try{ registrar=r.entities.find(function(e){return e.roles&&e.roles.indexOf('registrar')>=0;}).vcardArray[1].find(function(v){return v[0]==='fn';})[3]; }catch(e){} var created=(r.events&&r.events.find(function(e){return e.eventAction==='registration';})||{}).eventDate||''; var expires=(r.events&&r.events.find(function(e){return e.eventAction==='expiration';})||{}).eventDate||''; _d.registrar=registrar; var h=dhead('WHOIS','var(--acc2)'); if(registrar) h+=row('REGISTRAR',registrar+' '+pivot(registrar),'var(--subtext)'); if(created) h+=row('CREATED',created.split('T')[0],'var(--subtext)'); if(expires){ var days=Math.floor((new Date(expires)-Date.now())/86400000); var col=days<30?'var(--red)':days<90?'var(--yellow)':'var(--subtext)'; h+=row('EXPIRES',expires.split('T')[0]+' ('+days+'d)',col); } ciAppend('ci-identity',h); }
@@ -1584,7 +1876,39 @@ function ciParseEXIF(data){ var r={}; try{ var header=String.fromCharCode(data[0
 function ci_risk(){ var d=_d,cards=[],score=0; if(d.ransomware){ score+=20; cards.push(badge('RANSOMWARE',d.ransomware,'var(--red)')); } if(d.vtMalicious&&d.vtMalicious>0){ score+=Math.min(d.vtMalicious*4,20); cards.push(badge('VT FLAGS',d.vtMalicious,'var(--red)')); } if(d.vulns&&d.vulns.length){ score+=Math.min(d.vulns.length*5,20); cards.push(badge('CVEs',d.vulns.length,'var(--red)')); } if(d.blacklisted&&d.blacklisted>0){ score+=Math.min(d.blacklisted*6,20); cards.push(badge('BLACKLISTED',d.blacklisted,'var(--red)')); } if(d.breaches&&d.breaches.length){ score+=Math.min(d.breaches.length*3,12); cards.push(badge('BREACHES',d.breaches.length,'var(--yellow)')); } if(d.noSPF&&d.noDMARC){ score+=10; cards.push(badge('SPOOFABLE','⚠','var(--red)')); } score=Math.min(score,100); _d.riskScore=score; var verdict,verdictClass,verdictColor,verdictSub,lightColor; if(score===0&&cards.length===0){ verdict='CLEAR'; verdictClass='v-clear'; verdictColor='var(--green)'; verdictSub='No risk indicators detected across all modules.'; lightColor='#34d399'; cards.push(badge('RISK','MINIMAL','var(--green)')); } else if(score<25){ verdict='REVIEW'; verdictClass='v-review'; verdictColor='var(--yellow)'; verdictSub='Low-level indicators present.'; lightColor='#fbbf24'; } else if(score<55){ verdict='INVESTIGATE'; verdictClass='v-investigate'; verdictColor='var(--orange)'; verdictSub='Moderate risk profile. Active investigation recommended.'; lightColor='#fb923c'; } else { verdict='ESCALATE'; verdictClass='v-escalate'; verdictColor='var(--red)'; verdictSub='High-risk indicators. Immediate attention required.'; lightColor='#f87171'; } var vbar=gel('ci-verdict'); if(vbar){ vbar.className='verdict-bar '+verdictClass; vbar.style.display='flex'; var vlight=gel('ci-verdict-light'); if(vlight){ vlight.style.background=lightColor; } var vtext=gel('ci-verdict-text'); if(vtext){ vtext.textContent=verdict; vtext.style.color=verdictColor; } var vsub=gel('ci-verdict-sub'); if(vsub) vsub.textContent=verdictSub; var vscore=gel('ci-verdict-score'); if(vscore){ vscore.textContent=score; vscore.style.color=verdictColor; } } gset('ci-risk-strip','<div style="display:flex;flex-wrap:wrap;gap:.35rem">'+cards.join('')+'</div>'); }
 async function ci_ai(){ var d=_d; var summary={target:d.seed,type:d.type,ips:d.ips||[],domain:d.domain||'',ports:d.ports||[],vulns:d.vulns||[],breaches:d.breaches||[],vtMalicious:d.vtMalicious||0,abuseScore:d.abuseScore||0,blacklisted:d.blacklisted||0,noSPF:d.noSPF||false,noDMARC:d.noDMARC||false,riskScore:d.riskScore||0}; var verdict=(d.riskScore||0)>=55?'ESCALATE':(d.riskScore||0)>=25?'INVESTIGATE':(d.riskScore||0)>0?'REVIEW':'CLEAR'; var h='<div style="font-size:.58rem;color:var(--green);letter-spacing:.06em;margin-bottom:.5rem">◈ AI ASSESSMENT · LOCAL (OLLAMA)</div>'; try{ var r=await fetchT('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seed:d.seed,type:d.type,score:d.riskScore||0,verdict:verdict,summary:summary})},30000); if(!r.ok){ h+=row('STATUS',r.status===503?'Ollama offline — run: ollama serve':'AI error: '+r.status,'var(--yellow)'); ciPanel('ci-ai-assess','AI ASSESSMENT','ai',h); return; } var data=await r.json(); var text=data.assessment||''; if(text){ h+='<div style="font-size:.64rem;color:var(--cream);line-height:1.8;white-space:pre-wrap">'+text+'</div>'; } else { h+=row('STATUS','No response from AI','var(--muted)'); } ciPanel('ci-ai-assess','AI ASSESSMENT','ai',h); }catch(e){ ciPanel('ci-ai-assess','AI ASSESSMENT','ai',row('STATUS','AI assessment offline — start Ollama on server: ollama serve','var(--muted)')); } }
 function ciGatherPanels(){ var catList=[{name:'Identity & Target Profile',grid:'cat-identity-panels'},{name:'Network & Infrastructure',grid:'cat-network-panels'},{name:'Threat Intelligence',grid:'cat-threat-panels'},{name:'Breach & Exposure',grid:'cat-exposure-panels'},{name:'Web & Domain Intel',grid:'cat-web-panels'},{name:'Social & People Intel',grid:'cat-social-panels'},{name:'Financial & Corporate',grid:'cat-financial-panels'}]; var result=[]; catList.forEach(function(cat){ var grid=gel(cat.grid); if(!grid) return; var panels=[]; grid.querySelectorAll('.panel').forEach(function(panel){ var hdr=panel.querySelector('.panel-hdr'); var body=panel.querySelector('.panel-body'); if(!hdr||!body) return; var title=hdr.textContent.replace(/[⎘▾◈]/g,'').replace(/\s+/g,' ').trim(); var text=body.innerText||body.textContent||''; if(text.trim()) panels.push({title:title,text:text.trim(),html:body.innerHTML||''}); }); if(panels.length) result.push({category:cat.name,panels:panels}); }); return result; }
-function ciExport(fmt){ fmt=fmt||'html'; if(!Object.keys(_panels).length){ alert('No data to export. Run a collection first.'); return; } var gathered=ciGatherPanels(); if(!gathered.length){ alert('No panel data found.'); return; } var d=_d; var score=d.riskScore||0; var verdict=score>=55?'ESCALATE':score>=25?'INVESTIGATE':score>0?'REVIEW':'CLEAR'; var payload={fmt:fmt,seed:d.seed||'',type:d.type||'',domain:d.domain||'',ips:d.ips||[],score:score,verdict:verdict,results:gathered,ts:new Date().toLocaleString()}; var exportBtn=gel('export-'+fmt); if(exportBtn){ exportBtn.disabled=true; exportBtn.textContent='⌛ GENERATING…'; } fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(res){ if(!res.ok) throw new Error('Server returned '+res.status); return res.blob().then(function(blob){return{blob:blob,fn:'CICI_Report_'+(d.seed||'target').replace(/[^a-z0-9]/gi,'_')+'.'+fmt};}); }).then(function(obj){ var url=URL.createObjectURL(obj.blob); var a=document.createElement('a'); a.href=url; a.download=obj.fn; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(url); document.body.removeChild(a); },2000); if(exportBtn){ exportBtn.disabled=false; exportBtn.textContent='⬇ '+fmt.toUpperCase()+(fmt==='html'?' REPORT':''); } }).catch(function(err){ console.error('[CICI export]',err); alert('Export failed: '+err.message); if(exportBtn){ exportBtn.disabled=false; exportBtn.textContent=fmt==='html'?'⬇ HTML REPORT':'⬇ '+fmt.toUpperCase(); } }); }
+function ciExport(fmt){
+  fmt=fmt||'html';
+  if(!Object.keys(_panels).length){ alert('No data to export. Run a collection first.'); return; }
+  var gathered=ciGatherPanels();
+  if(!gathered.length){ alert('No panel data found.'); return; }
+  var d=_d;
+  var score=d.riskScore||0;
+  var verdict=score>=55?'ESCALATE':score>=25?'INVESTIGATE':score>0?'REVIEW':'CLEAR';
+  var payload={fmt:fmt,seed:d.seed||'',type:d.type||'',domain:d.domain||'',ips:d.ips||[],score:score,verdict:verdict,results:gathered,ts:new Date().toLocaleString()};
+  persistCiDossier({schema:'aip.web2.osint.v1',target:d.seed,type:d.type,domain:d.domain,ips:d.ips||[],ports:d.ports||[],vulns:d.vulns||[],riskScore:score,generated_at:new Date().toISOString()});
+  var exportBtn=gel('export-'+fmt);
+  if(exportBtn){ exportBtn.disabled=true; exportBtn.textContent='⌛ GENERATING…'; }
+  function finish(blob, filename){
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); document.body.removeChild(a); },2000);
+    if(exportBtn){ exportBtn.disabled=false; exportBtn.textContent='⬇ '+fmt.toUpperCase()+(fmt==='html'?' REPORT':''); }
+  }
+  fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(async function(res){
+      if(!res.ok) throw new Error('Server returned '+res.status);
+      var blob=await res.blob();
+      var fn=res._aipFilename || ('AIP_Web2_Report_'+(d.seed||'target').replace(/[^a-z0-9]/gi,'_')+'.'+fmt);
+      finish(blob, fn);
+    })
+    .catch(function(err){
+      console.error('[CICI export]',err);
+      // hard local fallback
+      ciLocalExportFromInit({body:JSON.stringify(payload)}).then(function(res){
+        return res.blob().then(function(b){ finish(b, res._aipFilename || ('report.'+fmt)); });
+      });
+    });
+}
 
 </script>
 
@@ -1658,8 +1982,16 @@ async function runCVE(){
   if(isCVEId){url='https://services.nvd.nist.gov/rest/json/cves/2.0?cveId='+query.toUpperCase();}
   else{url='https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch='+encodeURIComponent(query)+'&resultsPerPage='+limit+'&startIndex=0';if(severityFilter)url+='&cvssV3Severity='+severityFilter;}
   try{
-    var resp=await Promise.race([fetch(url,{headers:headers}),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout'));},15000)})]);
-    if(!resp.ok)throw new Error('NVD API returned '+resp.status);
+    var resp;
+    try{
+      resp=await Promise.race([fetch(url,{headers:headers}),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout'));},15000)})]);
+      if(!resp.ok) throw new Error('NVD API returned '+resp.status);
+    }catch(fetchErr){
+      tapTermLog('cve-term','t-dim','  Direct NVD blocked ('+fetchErr.message+') — trying CORS proxy...');
+      var prox='https://api.allorigins.win/raw?url='+encodeURIComponent(url);
+      resp=await Promise.race([fetch(prox),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout'));},20000)})]);
+      if(!resp.ok) throw new Error('NVD proxy returned '+resp.status);
+    }
     var data=await resp.json();
     var vulns=data.vulnerabilities||[];
     tapTermLog('cve-term','t-ok','  ✓ NVD returned '+vulns.length+' result(s)');
@@ -1991,24 +2323,25 @@ function ciExportPDF(){
     results:gathered,ts:new Date().toLocaleString(),tsISO:new Date().toISOString(),
     risk:{breaches:d.breaches?d.breaches.length:0,vulns:d.vulns?d.vulns.length:0,
       vtMalicious:d.vtMalicious||0,blacklisted:d.blacklisted||0}};
-  var btn=gel('export-pdf'),token=(gel('key-cici-token')&&gel('key-cici-token').value)||'';
+  var btn=gel('export-pdf');
   if(btn){btn.disabled=true;btn.textContent='Generating...';}
-  var headers={'Content-Type':'application/json'};
-  if(token)headers['x-cici-token']=token;
-  fetch('/api/export/pdf',{method:'POST',headers:headers,body:JSON.stringify(payload)})
-    .then(function(r){
-      if(!r.ok)throw new Error('Server '+r.status+' — ensure cici_pdf_report.py is on backend');
-      return r.blob().then(function(b){return{blob:b};});
-    })
-    .then(function(o){
-      var a=document.createElement('a');a.href=URL.createObjectURL(o.blob);
-      a.download='CICI_GovReport_'+((d.seed||'target').replace(/[^a-z0-9]/gi,'_'))+'.pdf';
+  fetch('/api/export/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(async function(r){
+      if(!r.ok) throw new Error('Server '+r.status);
+      var b=await r.blob();
+      var a=document.createElement('a');a.href=URL.createObjectURL(b);
+      a.download=r._aipFilename||('AIP_Web2_GovReport_'+((d.seed||'target').replace(/[^a-z0-9]/gi,'_'))+'.html');
       document.body.appendChild(a);a.click();
       setTimeout(function(){URL.revokeObjectURL(a.href);document.body.removeChild(a);},2000);
+      // Offer print-to-PDF
+      try{
+        var w=window.open(URL.createObjectURL(b));
+        if(w) setTimeout(function(){ try{ w.print(); }catch(e){} }, 700);
+      }catch(e){}
       if(btn){btn.disabled=false;btn.textContent='⬇ GOV PDF';}
     })
     .catch(function(err){
-      alert('PDF export: '+err.message);
+      alert('PDF export fallback: printable HTML will download. Use browser Print → Save as PDF.\\n'+err.message);
       if(btn){btn.disabled=false;btn.textContent='⬇ GOV PDF';}
     });
 }
@@ -2111,8 +2444,15 @@ function tapLoadKEV(filter){
     tapSetHTML('kev-results',html);
   };
   if(_kevCache&&filter!==undefined){run(_kevCache);return;}
-  fetch('https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json')
-    .then(function(r){return r.json();}).then(run)
+  var kevUrl='https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json';
+  fetch(kevUrl)
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(run)
+    .catch(function(){
+      return fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(kevUrl))
+        .then(function(r){ if(!r.ok) throw new Error('proxy '+r.status); return r.json(); })
+        .then(run);
+    })
     .catch(function(err){
       tapHide('kev-loading');
       tapSetHTML('kev-results','<div class="alert err">Could not load CISA KEV catalog: '+tapEscapeHTML(err.message)+'<br><a href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog" target="_blank" style="color:#4a9eff">&#8599; View on CISA.gov</a></div>');
