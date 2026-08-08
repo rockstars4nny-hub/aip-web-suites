@@ -72,8 +72,11 @@ def default_rpc() -> str:
 def redact_rpc(url: str) -> str:
     if not url:
         return ""
-    # hide API keys in path/query
-    return re.sub(r"(api[_-]?key=)[^&]+", r"\1***", url, flags=re.I)
+    # hide API keys in query and Infura/Alchemy path tokens
+    out = re.sub(r"(api[_-]?key=)[^&]+", r"\1***", url, flags=re.I)
+    out = re.sub(r"(/v3/)[0-9a-fA-F]+", r"\1***", out)
+    out = re.sub(r"(/v2/)[0-9a-zA-Z_-]+", r"\1***", out)
+    return out
 
 
 def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 180) -> subprocess.CompletedProcess:
