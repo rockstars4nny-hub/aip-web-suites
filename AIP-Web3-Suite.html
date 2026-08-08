@@ -15,326 +15,546 @@
   --mono:"JetBrains Mono",ui-monospace,monospace;
   --display:"Syne",system-ui,sans-serif;
   --radius:8px; --ease:cubic-bezier(.2,0,0,1);
+  --mode-h:44px; --drawer-w:280px; --content-max:1080px;
 }
-html,body{min-height:100%; background:var(--void); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased}
+html,body{min-height:100%; background:var(--void); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased; line-height:1.55}
 body::before{
   content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
   background:
     radial-gradient(ellipse 80% 45% at 12% -10%, rgba(245,197,66,.10), transparent 55%),
     radial-gradient(ellipse 70% 40% at 88% 0%, rgba(94,234,212,.09), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 50% 100%, rgba(56,189,248,.05), transparent 60%),
     linear-gradient(180deg,#071018 0%,#05080f 45%,#03060c 100%);
 }
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(125,211,252,.18); border-radius:3px}
+
+/* ── Mode bar: brand LEFT + three modes ── */
 .mode-bar{
-  position:fixed; top:0; left:0; right:0; z-index:10000; display:flex; align-items:stretch;
-  height:40px; background:rgba(5,8,15,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(16px);
+  position:fixed; top:0; left:0; right:0; z-index:10000;
+  display:flex; align-items:stretch; height:var(--mode-h);
+  background:rgba(5,8,15,.96); border-bottom:1px solid var(--line); backdrop-filter:blur(16px);
 }
+.mode-brand{
+  flex:0 0 auto; display:flex; align-items:center; gap:8px;
+  padding:0 16px; border-right:1px solid var(--line);
+  font:800 12px/1 var(--display); letter-spacing:.14em; text-transform:uppercase;
+  color:rgba(232,238,247,.72); white-space:nowrap; user-select:none;
+}
+.mode-brand em{font-style:normal; color:var(--star)}
 .mode-btn{
   flex:1; border:none; background:transparent; font:600 10px/1 var(--mono);
   letter-spacing:.12em; text-transform:uppercase; cursor:pointer; color:var(--muted); transition:.15s var(--ease);
 }
-.mode-btn .mode-label{display:flex; align-items:center; justify-content:center; gap:.5rem; height:100%}
-.mode-dot{width:6px; height:6px; border-radius:50%}
-.mode-btn.osint-btn .mode-dot{background:var(--plasma)}
+.mode-btn .mode-label{display:flex; align-items:center; justify-content:center; gap:.45rem; height:100%}
+.mode-dot{width:6px; height:6px; border-radius:50%; flex-shrink:0}
+.mode-btn.intel-btn .mode-dot{background:var(--plasma)}
 .mode-btn.audit-btn .mode-dot{background:var(--star); box-shadow:0 0 8px rgba(245,197,66,.45)}
-.mode-btn.osint-btn.active{background:rgba(94,234,212,.08); color:var(--plasma); border-bottom:2px solid var(--plasma)}
+.mode-btn.caps-btn .mode-dot{background:var(--ion)}
+.mode-btn.intel-btn.active{background:rgba(94,234,212,.08); color:var(--plasma); border-bottom:2px solid var(--plasma)}
 .mode-btn.audit-btn.active{background:rgba(245,197,66,.08); color:var(--star); border-bottom:2px solid var(--star)}
+.mode-btn.caps-btn.active{background:rgba(56,189,248,.08); color:var(--ion); border-bottom:2px solid var(--ion)}
 .mode-btn:not(.active):hover{background:rgba(94,234,212,.05); color:var(--text)}
-.suite-brand{
-  position:fixed; top:10px; left:50%; transform:translateX(-50%); z-index:10001; pointer-events:none;
-  font:800 11px/1 var(--display); letter-spacing:.2em; color:rgba(232,238,247,.5); text-transform:uppercase;
-}
-.suite-brand em{font-style:normal; color:var(--star)}
 
-#osint-app,#audit-app{position:relative; z-index:1; padding-top:40px; min-height:100vh}
-#audit-app{display:none}
+.app{position:relative; z-index:1; padding-top:var(--mode-h); min-height:100vh; display:none}
+.app.active{display:block}
 
 .hdr{
-  position:sticky; top:40px; z-index:100; display:flex; align-items:center; justify-content:space-between;
-  gap:12px; padding:12px 20px; border-bottom:1px solid var(--line);
-  background:rgba(5,8,15,.88); backdrop-filter:blur(18px) saturate(1.15);
+  position:sticky; top:var(--mode-h); z-index:100; display:flex; align-items:center; justify-content:space-between;
+  gap:12px; padding:14px 24px; border-bottom:1px solid var(--line);
+  background:rgba(5,8,15,.9); backdrop-filter:blur(18px) saturate(1.15);
 }
-.hdr-logo-name{font:800 18px/1.1 var(--display); letter-spacing:.08em; text-transform:uppercase}
+.hdr-left{display:flex; align-items:center; gap:12px; min-width:0}
+.hdr-logo-name{font:800 18px/1.15 var(--display); letter-spacing:.08em; text-transform:uppercase}
 .hdr-logo-sub{display:block; margin-top:4px; font:500 9px var(--mono); letter-spacing:.14em; color:var(--plasma); text-transform:uppercase}
-.hdr-status{font:500 11px var(--mono); color:var(--dim); letter-spacing:.06em}
-.hdr-btn,.btn{
+.hdr-status{font:500 11px var(--mono); color:var(--dim); letter-spacing:.06em; white-space:nowrap}
+.hdr-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+
+.btn, .hdr-btn{
   appearance:none; border:1px solid rgba(94,234,212,.18); background:transparent; color:var(--dim);
   border-radius:var(--radius); padding:8px 12px; font:700 11px var(--mono); letter-spacing:.08em;
   text-transform:uppercase; cursor:pointer; transition:.15s var(--ease);
 }
-.hdr-btn:hover,.btn:hover{color:var(--text); border-color:rgba(94,234,212,.35); background:rgba(94,234,212,.08)}
-.btn.primary{
-  border:none; color:#041016; background:linear-gradient(135deg,var(--plasma),#2dd4bf);
-  box-shadow:0 0 20px rgba(94,234,212,.22);
-}
+.btn:hover, .hdr-btn:hover{color:var(--text); border-color:rgba(94,234,212,.35); background:rgba(94,234,212,.08)}
+.btn.primary{border:none; color:#041016; background:linear-gradient(135deg,var(--plasma),#2dd4bf); box-shadow:0 0 20px rgba(94,234,212,.22)}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn.star{border-color:rgba(245,197,66,.35); color:var(--star)}
+.btn.star:hover{background:rgba(245,197,66,.1)}
 .btn.danger{border-color:rgba(255,107,90,.35); color:var(--nova)}
+.btn.danger:hover{background:rgba(255,107,90,.1)}
+.btn:disabled, .btn.locked{opacity:.4; cursor:not-allowed; pointer-events:none}
 
-.main{max-width:1100px; margin:0 auto; padding:20px 20px 64px}
+.main{max-width:var(--content-max); margin:0 auto; padding:28px 28px 72px}
 .card{
   background:rgba(12,18,32,.72); border:1px solid var(--line); border-radius:10px;
-  border-left:3px solid var(--plasma); padding:16px 18px; margin-bottom:14px;
+  border-left:3px solid var(--plasma); padding:18px 20px; margin-bottom:16px;
 }
 .card.star-edge{border-left-color:var(--star)}
+.card.nova-edge{border-left-color:var(--nova)}
+.card.ion-edge{border-left-color:var(--ion)}
 .label{font:500 10px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:8px}
 .row{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
 input[type=text],input[type=password],textarea,select{
   width:100%; background:rgba(5,8,15,.85); border:1px solid rgba(94,234,212,.18);
-  border-radius:var(--radius); color:var(--text); font:400 13px/1.4 var(--sans);
-  padding:10px 12px; outline:none;
+  border-radius:var(--radius); color:var(--text); font:400 14px/1.45 var(--sans);
+  padding:11px 13px; outline:none;
 }
-textarea{min-height:100px; resize:vertical; font-family:var(--mono); font-size:12px}
-input:focus,textarea:focus,select:focus{
-  border-color:rgba(245,197,66,.45); box-shadow:0 0 0 1px rgba(245,197,66,.15);
-}
+textarea{min-height:110px; resize:vertical; font-family:var(--mono); font-size:12px; line-height:1.55}
+input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-shadow:0 0 0 1px rgba(245,197,66,.15)}
 .seed{flex:1; min-width:220px}
 .badge{
   font:600 10px var(--mono); letter-spacing:.08em; text-transform:uppercase;
   padding:6px 10px; border-radius:6px; border:1px solid var(--line); color:var(--ion); background:rgba(56,189,248,.08);
 }
-.pills{display:flex; flex-wrap:wrap; gap:8px; margin:12px 0}
+.pills{display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 0}
 .pill{
   font:500 11px var(--mono); letter-spacing:.06em; color:var(--dim);
-  border:1px solid var(--line); border-radius:999px; padding:6px 10px;
+  border:1px solid var(--line); border-radius:6px; padding:6px 10px;
 }
-.empty{
-  text-align:center; padding:48px 16px; color:var(--dim);
-}
-.empty h2{font:800 20px var(--display); letter-spacing:.08em; color:var(--text); margin-bottom:8px; text-transform:uppercase}
-.empty p{font:400 13px var(--sans); max-width:520px; margin:0 auto 14px; line-height:1.5}
+.empty{text-align:center; padding:56px 20px; color:var(--dim)}
+.empty h2{font:800 22px/1.2 var(--display); letter-spacing:.08em; color:var(--text); margin-bottom:10px; text-transform:uppercase}
+.empty p{font:400 14px/1.6 var(--sans); max-width:540px; margin:0 auto 16px}
 
-.jump{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0}
+.jump{display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 4px}
 .jump button{
   appearance:none; border:1px solid var(--line); background:transparent; color:var(--dim);
-  border-radius:6px; padding:7px 10px; font:600 10px var(--mono); letter-spacing:.08em;
+  border-radius:6px; padding:8px 11px; font:600 10px var(--mono); letter-spacing:.08em;
   text-transform:uppercase; cursor:pointer;
 }
 .jump button:hover,.jump button.active{color:var(--plasma); border-color:rgba(94,234,212,.35); background:rgba(94,234,212,.08)}
 
-.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:10px}
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px}
 .panel{
-  background:rgba(5,8,15,.55); border:1px solid var(--line); border-radius:10px; padding:12px 14px;
+  background:rgba(5,8,15,.55); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
 }
 .panel h3{font:600 11px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--plasma); margin-bottom:8px}
-.panel .kv{font:400 12px/1.55 var(--mono); color:var(--dim); white-space:pre-wrap; word-break:break-word}
+.panel .kv{font:400 12.5px/1.6 var(--mono); color:var(--dim); white-space:pre-wrap; word-break:break-word}
 .panel .kv strong{color:var(--text); font-weight:500}
-.cat{display:none; margin-top:12px}
+.cat{display:none; margin-top:14px}
 .cat.active{display:block}
 .cat-h{
   font:600 11px var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--plasma);
-  margin:18px 0 10px; padding-bottom:6px; border-bottom:1px solid rgba(125,211,252,.1);
+  margin:20px 0 12px; padding-bottom:8px; border-bottom:1px solid rgba(125,211,252,.1);
 }
-.meta{font:400 12px var(--mono); color:var(--dim); margin-top:8px}
-.meta strong{color:var(--ion)}
-.status{margin-top:10px; font:400 12px var(--mono); padding:8px 10px; border-radius:var(--radius); border:1px solid var(--line); color:var(--dim)}
+.meta{font:400 13px/1.55 var(--sans); color:var(--dim); margin-top:8px}
+.meta strong{color:var(--ion); font-family:var(--mono); font-size:12px}
+.status{margin-top:12px; font:400 12px var(--mono); padding:10px 12px; border-radius:var(--radius); border:1px solid var(--line); color:var(--dim)}
 .status.ok{color:var(--ok); border-color:rgba(52,211,153,.25); background:rgba(52,211,153,.06)}
 .status.err{color:var(--nova); border-color:rgba(255,107,90,.3); background:rgba(255,107,90,.08)}
+.status.warn{color:var(--star); border-color:rgba(245,197,66,.3); background:rgba(245,197,66,.06)}
 .out{
   margin-top:10px; background:rgba(5,8,15,.85); border:1px solid rgba(94,234,212,.18);
-  border-radius:var(--radius); padding:12px; font:400 12px/1.5 var(--mono); white-space:pre-wrap; word-break:break-word; min-height:64px;
+  border-radius:var(--radius); padding:14px; font:400 12px/1.55 var(--mono); white-space:pre-wrap; word-break:break-word; min-height:72px;
 }
-.ftr{text-align:center; padding:24px; color:var(--muted); font:400 10px var(--mono); letter-spacing:.06em; border-top:1px solid var(--line); margin-top:24px}
+.ftr{
+  text-align:center; padding:28px 20px; color:var(--muted); font:400 10px var(--mono);
+  letter-spacing:.06em; border-top:1px solid var(--line); margin-top:32px;
+}
 
-/* Audit drawer */
-#drawer-overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:200}
-#drawer-overlay.open{display:block}
-#tab-drawer{
-  position:fixed; top:40px; left:0; bottom:0; width:min(300px,86vw); z-index:210;
-  background:rgba(5,8,15,.96); border-right:1px solid var(--line); transform:translateX(-105%);
+/* FORK_STRICT banner */
+.fork-banner{
+  display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap;
+  background:rgba(255,107,90,.08); border:1px solid rgba(255,107,90,.35);
+  border-left:3px solid var(--nova); border-radius:10px; padding:14px 16px; margin-bottom:18px;
+}
+.fork-banner.attested{
+  background:rgba(52,211,153,.06); border-color:rgba(52,211,153,.3); border-left-color:var(--ok);
+}
+.fork-banner-body{flex:1; min-width:240px}
+.fork-banner-title{font:700 11px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--nova); margin-bottom:6px}
+.fork-banner.attested .fork-banner-title{color:var(--ok)}
+.fork-banner p{font:400 13px/1.55 var(--sans); color:var(--dim)}
+.fork-banner p strong{color:var(--text); font-weight:600}
+.attest-box{
+  display:flex; gap:10px; align-items:flex-start; margin-top:12px;
+  padding:12px; background:rgba(5,8,15,.55); border:1px solid var(--line); border-radius:8px;
+}
+.attest-box input{margin-top:3px; flex-shrink:0; accent-color:var(--ok)}
+.attest-box label{font:400 12.5px/1.5 var(--sans); color:var(--dim); cursor:pointer}
+.attest-box label strong{color:var(--text)}
+
+/* Audit drawer — 280px, hamburger in header */
+.drawer-overlay{display:none; position:fixed; inset:0; top:var(--mode-h); background:rgba(0,0,0,.45); z-index:200}
+.drawer-overlay.open{display:block}
+.tab-drawer{
+  position:fixed; top:var(--mode-h); left:0; bottom:0; width:var(--drawer-w); z-index:210;
+  background:rgba(5,8,15,.97); border-right:1px solid var(--line); transform:translateX(-105%);
   transition:transform .25s var(--ease); overflow:auto; backdrop-filter:blur(18px);
 }
-#tab-drawer.open{transform:none}
-.drawer-header{display:flex; justify-content:space-between; padding:14px 14px 10px; font:600 10px var(--mono); letter-spacing:.12em; color:var(--star); text-transform:uppercase}
+.tab-drawer.open{transform:none}
+.drawer-header{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:16px 14px 12px; font:600 10px var(--mono); letter-spacing:.12em;
+  color:var(--star); text-transform:uppercase; border-bottom:1px solid var(--line);
+}
 .dtab{
   display:block; width:calc(100% - 16px); margin:3px 8px; text-align:left;
   appearance:none; background:transparent; border:1px solid transparent; border-left:2px solid transparent;
-  color:var(--dim); border-radius:6px; padding:10px 12px; font:600 11px var(--mono); letter-spacing:.04em; cursor:pointer;
+  color:var(--dim); border-radius:6px; padding:10px 12px; font:600 11px/1.3 var(--mono); letter-spacing:.03em; cursor:pointer;
 }
 .dtab:hover{color:var(--text); background:rgba(94,234,212,.06)}
 .dtab.active{color:var(--star); background:rgba(245,197,66,.08); border-color:rgba(245,197,66,.2); border-left-color:var(--star)}
-#tab-trigger{
-  position:fixed; top:56px; left:12px; z-index:220; width:42px; height:42px;
-  border:1px solid rgba(94,234,212,.25); border-radius:10px; background:rgba(5,8,15,.9);
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; cursor:pointer;
+.dtab .dtab-num{color:var(--muted); margin-right:6px; font-weight:500}
+.dtab.locked-tab::after{content:" LOCKED"; font-size:9px; letter-spacing:.08em; color:var(--nova); opacity:.8}
+
+.ham{
+  flex-shrink:0; width:40px; height:40px; border:1px solid rgba(94,234,212,.25); border-radius:8px;
+  background:rgba(5,8,15,.85); display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:5px; cursor:pointer; transition:.15s var(--ease);
 }
-#tab-trigger span{display:block; width:18px; height:1.5px; background:var(--plasma)}
-#tab-label{
-  position:fixed; top:64px; left:64px; z-index:220; font:600 11px var(--mono); letter-spacing:.1em;
-  text-transform:uppercase; color:var(--star); opacity:0; transition:.2s;
-}
-#audit-app.drawer-ready #tab-label{opacity:1}
+.ham:hover{border-color:rgba(94,234,212,.45); background:rgba(94,234,212,.08)}
+.ham span{display:block; width:16px; height:1.5px; background:var(--plasma)}
+
 .audit-pane{display:none}
 .audit-pane.active{display:block}
-.check{display:flex; gap:8px; align-items:flex-start; margin:6px 0; font:400 12px/1.45 var(--sans); color:var(--dim)}
-.check input{margin-top:3px}
-.sev{display:inline-block; font:700 9px var(--mono); letter-spacing:.08em; padding:2px 6px; border-radius:4px; margin-right:6px}
+.audit-title-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 8px}
+.audit-title-row h2{font:800 22px/1.2 var(--display); letter-spacing:.06em; text-transform:uppercase; margin:0}
+.check{display:flex; gap:10px; align-items:flex-start; margin:8px 0; font:400 13px/1.5 var(--sans); color:var(--dim)}
+.check input{margin-top:4px; flex-shrink:0; accent-color:var(--plasma)}
+.sev{display:inline-block; font:700 9px var(--mono); letter-spacing:.08em; padding:3px 7px; border-radius:4px; vertical-align:middle}
 .sev.c{background:rgba(255,107,90,.2); color:var(--nova)}
 .sev.h{background:rgba(245,197,66,.18); color:var(--star)}
 .sev.m{background:rgba(56,189,248,.15); color:var(--ion)}
 .sev.l{background:rgba(52,211,153,.12); color:var(--ok)}
-@media(max-width:640px){.hdr{flex-wrap:wrap}.suite-brand{display:none}}
+
+.lock-notice{
+  margin:12px 0; padding:12px 14px; border-radius:8px;
+  border:1px dashed rgba(255,107,90,.4); background:rgba(255,107,90,.06);
+  font:400 13px/1.5 var(--sans); color:var(--dim);
+}
+.lock-notice strong{color:var(--nova)}
+
+/* Capabilities */
+.cap-hero{margin-bottom:28px}
+.cap-hero h1{font:800 28px/1.15 var(--display); letter-spacing:.04em; text-transform:uppercase; margin-bottom:10px}
+.cap-hero p{font:400 15px/1.65 var(--sans); color:var(--dim); max-width:720px}
+.cap-section{margin:36px 0 20px}
+.cap-section h2{
+  font:700 14px/1.3 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+  color:var(--plasma); margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid rgba(125,211,252,.12);
+}
+.cap-section .cap-lead{font:400 14px/1.55 var(--sans); color:var(--dim); margin-bottom:16px; max-width:780px}
+.cap-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px}
+.cap-card{
+  background:rgba(12,18,32,.7); border:1px solid var(--line); border-radius:10px; padding:16px 16px 18px;
+  transition:border-color .15s var(--ease), background .15s var(--ease);
+}
+.cap-card:hover{border-color:rgba(94,234,212,.28); background:rgba(12,18,32,.9)}
+.cap-card h3{font:700 13px/1.35 var(--display); letter-spacing:.04em; color:var(--text); margin-bottom:8px}
+.cap-card p{font:400 12.5px/1.55 var(--sans); color:var(--dim)}
+.cap-card .tag{font:600 9px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--ion); margin-bottom:8px}
+
+.compare{
+  display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:20px 0 8px;
+}
+@media(max-width:720px){.compare{grid-template-columns:1fr}}
+.compare-col{
+  background:rgba(5,8,15,.55); border:1px solid var(--line); border-radius:10px; padding:18px 18px 20px;
+}
+.compare-col.aip{border-color:rgba(94,234,212,.28); border-left:3px solid var(--plasma)}
+.compare-col.firm{border-left:3px solid var(--muted)}
+.compare-col h3{font:700 12px var(--mono); letter-spacing:.1em; text-transform:uppercase; margin-bottom:10px}
+.compare-col.aip h3{color:var(--plasma)}
+.compare-col.firm h3{color:var(--muted)}
+.compare-col ul{margin:0; padding-left:18px; color:var(--dim); font:400 13px/1.65 var(--sans)}
+.compare-note{
+  margin-top:14px; padding:14px 16px; border-radius:8px; border:1px solid rgba(245,197,66,.25);
+  background:rgba(245,197,66,.05); font:400 13.5px/1.6 var(--sans); color:var(--dim);
+}
+.compare-note strong{color:var(--star)}
+
+.roe-card{border-left-color:var(--star)}
+.roe-card ul{margin:8px 0 0; padding-left:18px; color:var(--dim); font:400 13px/1.6 var(--sans)}
+
+@media(max-width:720px){
+  .mode-brand{padding:0 10px; font-size:10px; letter-spacing:.1em}
+  .mode-btn{font-size:8px; letter-spacing:.06em}
+  .main{padding:20px 16px 64px}
+  .hdr{padding:12px 14px}
+}
 </style>
 </head>
 <body>
-<div class="suite-brand">AIP <em>Web3</em> Suite</div>
 
-<div class="mode-bar">
-  <button class="mode-btn osint-btn active" id="mode-osint" onclick="switchMode('osint')">
-    <span class="mode-label"><span class="mode-dot"></span>Chain Intel — Web3 OSINT</span>
+<!-- Mode bar: brand inside bar (left), three modes -->
+<div class="mode-bar" role="navigation" aria-label="Suite modes">
+  <div class="mode-brand">AIP <em>Web3</em></div>
+  <button type="button" class="mode-btn intel-btn active" id="mode-intel" onclick="switchMode('intel')">
+    <span class="mode-label"><span class="mode-dot" aria-hidden="true"></span>Chain Intel</span>
   </button>
-  <button class="mode-btn audit-btn" id="mode-audit" onclick="switchMode('audit')">
-    <span class="mode-label"><span class="mode-dot"></span>Audit Matrix — Web3 Hunt</span>
+  <button type="button" class="mode-btn audit-btn" id="mode-audit" onclick="switchMode('audit')">
+    <span class="mode-label"><span class="mode-dot" aria-hidden="true"></span>Audit Matrix</span>
+  </button>
+  <button type="button" class="mode-btn caps-btn" id="mode-caps" onclick="switchMode('caps')">
+    <span class="mode-label"><span class="mode-dot" aria-hidden="true"></span>Capabilities</span>
   </button>
 </div>
 
-<!-- ═══════════════ CHAIN INTEL (OSINT) ═══════════════ -->
-<div id="osint-app">
+<!-- ═══════════════ CHAIN INTEL ═══════════════ -->
+<div id="intel-app" class="app active">
   <header class="hdr">
-    <div>
-      <div class="hdr-logo-name">AIP Web3</div>
-      <span class="hdr-logo-sub">Wallet · Contract · Protocol · Sanctions · Graph</span>
+    <div class="hdr-left">
+      <div>
+        <div class="hdr-logo-name">Chain Intel</div>
+        <span class="hdr-logo-sub">Wallet · Contract · Protocol · Sanctions · Graph</span>
+      </div>
     </div>
-    <div class="hdr-status" id="osint-status">READY</div>
-    <button class="hdr-btn" type="button" onclick="osintReset()">Clear</button>
+    <div class="hdr-actions">
+      <div class="hdr-status" id="intel-status">READY</div>
+      <button class="hdr-btn" type="button" onclick="intelReset()">Clear</button>
+    </div>
   </header>
   <main class="main">
     <div class="card">
-      <div class="label">Target — address · ENS · tx · token · protocol</div>
+      <div class="label">Target — 0x address · ENS · tx · Solana-like · protocol name</div>
       <div class="row">
-        <input class="seed" id="osint-seed" type="text" placeholder="0x… · vitalik.eth · tx hash · protocol name"
-          onkeydown="if(event.key==='Enter')osintRun()" oninput="osintClassify()">
-        <div class="badge" id="osint-type">—</div>
-        <button class="btn primary" type="button" onclick="osintRun()">Run collection</button>
+        <input class="seed" id="intel-seed" type="text" placeholder="0x… · vitalik.eth · tx hash · Solana pubkey · protocol name"
+          onkeydown="if(event.key==='Enter')intelRun()" oninput="intelClassify()" autocomplete="off" spellcheck="false">
+        <div class="badge" id="intel-type">—</div>
+        <button class="btn primary" type="button" onclick="intelRun()">Run collection</button>
       </div>
-      <div class="meta" id="osint-hint">Paste a checksummed EVM address, ENS-style name, or 0x tx hash. Client-side classification + checklist intel — no server.</div>
+      <div class="meta" id="intel-hint">Client-side classify + dossier panels. No server. Authorized scope only.</div>
     </div>
 
-    <div class="empty" id="osint-empty">
+    <div class="card roe-card star-edge">
+      <div class="label">Engagement ROE</div>
+      <ul>
+        <li>Authorized scope only — written permission / in-scope bounty program required.</li>
+        <li>No mainnet harm — validation is fork-only (Anvil / Foundry). Never broadcast exploit txs.</li>
+        <li>Simulation-only and eth_call speculation are not evidence of exploitability.</li>
+      </ul>
+    </div>
+
+    <div class="empty" id="intel-empty">
       <h2>Chain surface in one pass</h2>
-      <p>Equivalent to Web2 OSINT — but for wallets, contracts, bridges, oracles, and protocol exposure. Build a hunt brief before you open Slither / Foundry / Immunefi.</p>
+      <p>Build a hunt brief for wallets, contracts, bridges, oracles, and protocol exposure before you open Slither, Foundry, or a bounty submission gate.</p>
       <div class="pills">
-        <span class="pill">◈ Address / ENS</span>
-        <span class="pill">◈ Contract surface</span>
-        <span class="pill">◈ Oracle / bridge risk</span>
-        <span class="pill">◈ Governance</span>
-        <span class="pill">◈ Sanctions posture</span>
-        <span class="pill">◈ Exploit class map</span>
+        <span class="pill">Address / ENS</span>
+        <span class="pill">Contract surface</span>
+        <span class="pill">Oracle / bridge risk</span>
+        <span class="pill">Governance</span>
+        <span class="pill">Sanctions posture</span>
+        <span class="pill">Exploit class map</span>
       </div>
     </div>
 
-    <div id="osint-results" hidden>
-      <div class="jump" id="osint-jump"></div>
-      <div class="meta" id="osint-summary"></div>
+    <div id="intel-results" hidden>
+      <div class="jump" id="intel-jump"></div>
+      <div class="meta" id="intel-summary"></div>
 
       <div class="cat active" id="cat-identity">
-        <div class="cat-h">◇ Identity & target profile</div>
+        <div class="cat-h">Identity &amp; target profile</div>
         <div class="grid" id="grid-identity"></div>
       </div>
       <div class="cat" id="cat-infra">
-        <div class="cat-h">◇ On-chain infrastructure</div>
+        <div class="cat-h">On-chain infrastructure</div>
         <div class="grid" id="grid-infra"></div>
       </div>
       <div class="cat" id="cat-threat">
-        <div class="cat-h">◇ Threat & exploit classes</div>
+        <div class="cat-h">Threat &amp; exploit classes</div>
         <div class="grid" id="grid-threat"></div>
       </div>
       <div class="cat" id="cat-exposure">
-        <div class="cat-h">◇ Exposure & approvals</div>
+        <div class="cat-h">Exposure &amp; approvals</div>
         <div class="grid" id="grid-exposure"></div>
       </div>
       <div class="cat" id="cat-protocol">
-        <div class="cat-h">◇ Protocol / DeFi surface</div>
+        <div class="cat-h">Protocol / DeFi surface</div>
         <div class="grid" id="grid-protocol"></div>
       </div>
       <div class="cat" id="cat-gov">
-        <div class="cat-h">◇ Governance & keys</div>
+        <div class="cat-h">Governance &amp; keys</div>
         <div class="grid" id="grid-gov"></div>
       </div>
       <div class="cat" id="cat-finance">
-        <div class="cat-h">◇ Financial / TVL posture</div>
+        <div class="cat-h">Financial / TVL posture</div>
         <div class="grid" id="grid-finance"></div>
       </div>
 
-      <div class="row" style="margin-top:16px">
-        <button class="btn" type="button" onclick="osintExport('md')">Export MD</button>
-        <button class="btn" type="button" onclick="osintExport('json')">Export JSON</button>
-        <button class="btn danger" type="button" onclick="osintReset()">Ephemeral wipe</button>
+      <div class="row" style="margin-top:18px">
+        <button class="btn" type="button" onclick="intelExport('md')">Export MD</button>
+        <button class="btn" type="button" onclick="intelExport('json')">Export JSON</button>
+        <button class="btn danger" type="button" onclick="intelReset()">Ephemeral wipe</button>
       </div>
     </div>
   </main>
-  <footer class="ftr">AIP Web3 Suite · Chain Intel · Authorized research only · © 2026 Aetherverse Intelligence</footer>
+  <footer class="ftr">AIP Web3 Suite · Authorized research only · © 2026 Aetherverse Intelligence</footer>
 </div>
 
 <!-- ═══════════════ AUDIT MATRIX ═══════════════ -->
-<div id="audit-app">
-  <div id="drawer-overlay" onclick="closeDrawer()"></div>
-  <div id="tab-drawer">
-    <div class="drawer-header"><span>Select module</span><span style="color:var(--nova)">15 TABS</span></div>
-    <button class="dtab active" onclick="selectAudit(0)">⚙ Selector / proxy</button>
-    <button class="dtab" onclick="selectAudit(1)">🔁 Reentrancy map</button>
-    <button class="dtab" onclick="selectAudit(2)">📡 Oracle / price</button>
-    <button class="dtab" onclick="selectAudit(3)">⚡ Flashloan paths</button>
-    <button class="dtab" onclick="selectAudit(4)">🔐 Access / roles</button>
-    <button class="dtab" onclick="selectAudit(5)">🧮 Math / shares</button>
-    <button class="dtab" onclick="selectAudit(6)">🌉 Bridge / message</button>
-    <button class="dtab" onclick="selectAudit(7)">🏛 Governance</button>
-    <button class="dtab" onclick="selectAudit(8)">◎ Solana / SVM</button>
-    <button class="dtab" onclick="selectAudit(9)">🤖 Agentic AI (ASI)</button>
-    <button class="dtab" onclick="selectAudit(10)">🧠 LLM×DeFi agents</button>
-    <button class="dtab" onclick="selectAudit(11)">📋 BVET / report gate</button>
-    <button class="dtab" onclick="selectAudit(12)">🗺 ATT&CK for blockchain</button>
-    <button class="dtab" onclick="selectAudit(13)">🚨 Known exploit patterns</button>
-    <button class="dtab" onclick="selectAudit(14)">🧪 Foundry PoC scaffold</button>
-  </div>
-  <div id="tab-trigger" onclick="toggleDrawer()" title="Modules"><span></span><span></span><span></span></div>
-  <div id="tab-label">Selector / proxy</div>
+<div id="audit-app" class="app">
+  <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+  <aside class="tab-drawer" id="tab-drawer" aria-label="Audit modules">
+    <div class="drawer-header"><span>Modules</span><span style="color:var(--muted)">15</span></div>
+    <div id="drawer-tabs"></div>
+  </aside>
 
-  <header class="hdr" style="padding-left:64px">
-    <div>
-      <div class="hdr-logo-name">Audit Matrix</div>
-      <span class="hdr-logo-sub">ARIA-aligned hunt classes · checklists · PoC scaffolds</span>
+  <header class="hdr">
+    <div class="hdr-left">
+      <button type="button" class="ham" id="tab-trigger" onclick="toggleDrawer()" title="Modules" aria-label="Open module drawer">
+        <span></span><span></span><span></span>
+      </button>
+      <div>
+        <div class="hdr-logo-name" id="audit-module-title">Selector / Proxy</div>
+        <span class="hdr-logo-sub">ARIA-aligned hunt classes · checklists · PoC scaffolds</span>
+      </div>
     </div>
-    <div class="hdr-status" id="audit-status">MODULE 01 / 15</div>
+    <div class="hdr-actions">
+      <div class="hdr-status" id="audit-status">MODULE 01 / 15</div>
+    </div>
   </header>
 
-  <main class="main" style="padding-left:24px" id="audit-main">
-    <!-- panes injected by JS for clarity -->
+  <main class="main" id="audit-main">
+    <!-- FORK_EXECUTED banner (persistent) -->
+    <div class="fork-banner" id="fork-banner">
+      <div class="fork-banner-body">
+        <div class="fork-banner-title" id="fork-banner-title">FORK_EXECUTED ONLY</div>
+        <p><strong>FORK_EXECUTED ONLY</strong> — Claims of exploitability require Anvil/Foundry fork execution against a pinned block. Simulation-only, eth_call speculation, and mainnet broadcast PoCs are <strong>REJECTED</strong>. No mainnet exploit transactions.</p>
+        <div class="attest-box" id="attest-box">
+          <input type="checkbox" id="fork-attest" onchange="onForkAttest()">
+          <label for="fork-attest">I attest PoCs will be fork-executed (<strong>FORK_EXECUTED</strong>) on a local Anvil fork only. No mainnet exploitation.</label>
+        </div>
+      </div>
+      <button type="button" class="btn star" id="fork-ack-btn" onclick="ackForkBanner()" style="align-self:center">Acknowledge</button>
+    </div>
+    <div id="audit-panes"></div>
   </main>
-  <footer class="ftr">AIP Web3 Suite · Audit Matrix · Authorized engagements only · © 2026</footer>
+  <footer class="ftr">AIP Web3 Suite · Authorized research only · © 2026 Aetherverse Intelligence</footer>
+</div>
+
+<!-- ═══════════════ CAPABILITIES ═══════════════ -->
+<div id="caps-app" class="app">
+  <header class="hdr">
+    <div class="hdr-left">
+      <div>
+        <div class="hdr-logo-name">Capabilities</div>
+        <span class="hdr-logo-sub">Elite-agency competitive matrix · hunt OS for authorized operators</span>
+      </div>
+    </div>
+    <div class="hdr-status">FORCE MULTIPLIER</div>
+  </header>
+  <main class="main">
+    <div class="cap-hero">
+      <h1>Why AIP Web3 competes</h1>
+      <p>Boutique firms sell week-long formal audits. AIP Web3 is a browser-native hunt OS: chain intel fanout, ARIA-aligned adversarial classes, and a hard FORK_EXECUTED evidence gate — so solo and elite operators triage like a war room in the first hour.</p>
+    </div>
+
+    <div class="compare">
+      <div class="compare-col firm">
+        <h3>Boutique audit firm week</h3>
+        <ul>
+          <li>Kickoff, scoping calls, NDA cycle</li>
+          <li>Static review + limited fork time</li>
+          <li>Report delivered days later</li>
+          <li>High cost, calendar-bound</li>
+          <li>Excellent for formal attestation</li>
+        </ul>
+      </div>
+      <div class="compare-col aip">
+        <h3>AIP Web3 first-hour triage</h3>
+        <ul>
+          <li>Zero-install dossier + module matrix</li>
+          <li>ARIA class checklists ready now</li>
+          <li>FORK_EXECUTED / BVET rigor built-in</li>
+          <li>Export MD/JSON · ephemeral wipe</li>
+          <li>Airgap-survivable offline checklists</li>
+        </ul>
+      </div>
+    </div>
+    <div class="compare-note">
+      <strong>Honest positioning:</strong> This is a force-multiplier for authorized operators — not a replacement for a full formal audit. Unmatched as a hunt OS for solo and elite operators who need speed, rigor, and fork-only discipline.
+    </div>
+
+    <section class="cap-section">
+      <h2>1 · Chain Intelligence</h2>
+      <p class="cap-lead">Multi-surface recon that maps identity, infra, and blast radius before deep audit hours burn.</p>
+      <div class="cap-grid">
+        <div class="cap-card"><div class="tag">Fanout</div><h3>Multi-chain fanout</h3><p>Same deployer / bytecode across Ethereum, L2s, and adjacent EVM — catch fork-deploy clones early.</p></div>
+        <div class="cap-card"><div class="tag">Proxy</div><h3>Proxy / EIP-1967 decode</h3><p>Implementation, admin, beacon slot workflow — upgrade authority before logic review.</p></div>
+        <div class="cap-card"><div class="tag">Graph</div><h3>Deployer clustering</h3><p>Funded-by edges, factory patterns, and label DB seeds for operator clustering.</p></div>
+        <div class="cap-card"><div class="tag">Identity</div><h3>ENS resolution path</h3><p>ENS / reverse-record hunt seeds for naming, phishing surface, and operator identity.</p></div>
+        <div class="cap-card"><div class="tag">Compliance</div><h3>Sanctions posture workflow</h3><p>OFAC-adjacent / mixer proximity triage checklist for engagement risk decisions.</p></div>
+        <div class="cap-card"><div class="tag">Exposure</div><h3>Approval blast-radius</h3><p>Unlimited allowance / spender map — revoke-style triage for wallet and protocol risk.</p></div>
+        <div class="cap-card"><div class="tag">Fingerprint</div><h3>Bytecode fingerprint</h3><p>Client-side fingerprint labels for clone detection and prior-audit correlation.</p></div>
+      </div>
+    </section>
+
+    <section class="cap-section">
+      <h2>2 · Adversarial Audit Classes</h2>
+      <p class="cap-lead">ARIA-aligned modules covering the classes that actually move funds — plus agentic AI and LLM×DeFi agents.</p>
+      <div class="cap-grid">
+        <div class="cap-card"><div class="tag">ARIA-2</div><h3>Reentrancy</h3><p>Classic, cross-function, read-only, ERC-777/1155 callback paths.</p></div>
+        <div class="cap-card"><div class="tag">ARIA-3</div><h3>Oracle / price</h3><p>Spot AMM, TWAP, Chainlink staleness, donation inflation.</p></div>
+        <div class="cap-card"><div class="tag">ARIA-4</div><h3>Flashloan paths</h3><p>Atomic capital chained into price, governance, and share games.</p></div>
+        <div class="cap-card"><div class="tag">ARIA-5</div><h3>Access / roles</h3><p>Init, UUPS, role misconfig, timelock/executor wiring.</p></div>
+        <div class="cap-card"><div class="tag">ARIA-6</div><h3>Math / shares</h3><p>Rounding, first-depositor inflation, ERC-4626 edges.</p></div>
+        <div class="cap-card"><div class="tag">ARIA-7</div><h3>Bridge / message</h3><p>Payload auth, replay, guardian threshold, domain separation.</p></div>
+        <div class="cap-card"><div class="tag">ARIA-8</div><h3>Governance</h3><p>Flashloan majority, zero delay, open EXECUTOR, quorum games.</p></div>
+        <div class="cap-card"><div class="tag">ARIA-10</div><h3>SVM / Solana</h3><p>Signer checks, arbitrary CPI, PDA bumps, account confusion.</p></div>
+        <div class="cap-card"><div class="tag">ASI</div><h3>Agentic AI (ASI)</h3><p>OWASP Agentic Top 10 adapted to on-chain / tool-using agents.</p></div>
+        <div class="cap-card"><div class="tag">LLM×DeFi</div><h3>LLM × DeFi agents</h3><p>Indirect injection via metadata, signer exposure, sim≠exec.</p></div>
+      </div>
+    </section>
+
+    <section class="cap-section">
+      <h2>3 · Evidence &amp; Rigor</h2>
+      <p class="cap-lead">Claims without fork evidence are rejected. Report mapping matches how elite programs actually grade.</p>
+      <div class="cap-grid">
+        <div class="cap-card"><div class="tag">Policy</div><h3>FORK_EXECUTED gate</h3><p>Attestation + lock on PoC scaffold / export / claim-finding until local fork policy is accepted.</p></div>
+        <div class="cap-card"><div class="tag">Quality</div><h3>BVET 5-gate</h3><p>Scope · Impact · PoC · Root cause · Fix — plus fork-evidence checklist.</p></div>
+        <div class="cap-card"><div class="tag">Programs</div><h3>Immunefi / Cantina / C4 / Sherlock</h3><p>Severity language and funds-at-risk mapping for submission-ready briefs.</p></div>
+        <div class="cap-card"><div class="tag">Severity</div><h3>Severity ↔ funds-at-risk</h3><p>Impact quantified in $ or broken invariants — not vibes.</p></div>
+      </div>
+    </section>
+
+    <section class="cap-section">
+      <h2>4 · Operator Advantage</h2>
+      <p class="cap-lead">What private firms charge retainers for — available as a self-contained HTML tool.</p>
+      <div class="cap-grid">
+        <div class="cap-card"><div class="tag">Deploy</div><h3>Browser-native zero-install</h3><p>Open the file. No npm, no SaaS login, no telemetry dependency.</p></div>
+        <div class="cap-card"><div class="tag">OPSEC</div><h3>Ephemeral wipe</h3><p>Clear dossier state instantly — engagement hygiene for shared machines.</p></div>
+        <div class="cap-card"><div class="tag">Export</div><h3>Export MD / JSON</h3><p>Hand off briefs into notes, tickets, or submission drafts.</p></div>
+        <div class="cap-card"><div class="tag">ROE</div><h3>Engagement ROE checklist</h3><p>Authorized scope, no mainnet harm, fork-only validation — always visible.</p></div>
+        <div class="cap-card"><div class="tag">Airgap</div><h3>Offline-first checklists</h3><p>Survive airgap review rooms; Google Fonts optional when offline.</p></div>
+      </div>
+    </section>
+  </main>
+  <footer class="ftr">AIP Web3 Suite · Authorized research only · © 2026 Aetherverse Intelligence</footer>
 </div>
 
 <script>
 "use strict";
-/* AIP Web3 Suite — standalone. Chain Intel + Audit Matrix. No server. */
+/* AIP Web3 Suite — standalone. Chain Intel + Audit Matrix + Capabilities. No external JS libs. */
+
+var FORK_KEY = "aip.web3.forkStrict";
+var forkStrict = false;
+var bannerAckSession = false;
 
 function switchMode(m){
-  const osint = m === "osint";
-  document.getElementById("osint-app").style.display = osint ? "block" : "none";
-  document.getElementById("audit-app").style.display = osint ? "none" : "block";
-  document.getElementById("mode-osint").classList.toggle("active", osint);
-  document.getElementById("mode-audit").classList.toggle("active", !osint);
-  if(!osint) document.getElementById("audit-app").classList.add("drawer-ready");
+  document.getElementById("intel-app").classList.toggle("active", m === "intel");
+  document.getElementById("audit-app").classList.toggle("active", m === "audit");
+  document.getElementById("caps-app").classList.toggle("active", m === "caps");
+  document.getElementById("mode-intel").classList.toggle("active", m === "intel");
+  document.getElementById("mode-audit").classList.toggle("active", m === "audit");
+  document.getElementById("mode-caps").classList.toggle("active", m === "caps");
+  if(m !== "audit") closeDrawer();
 }
 
-/* ---------- address helpers ---------- */
 function isHexAddress(s){ return /^0x[a-fA-F0-9]{40}$/.test(s); }
 function isTxHash(s){ return /^0x[a-fA-F0-9]{64}$/.test(s); }
 function isEns(s){ return /^[a-z0-9-]+\.eth$/i.test(s); }
 
-function ethChecksum(addr){
-  // EIP-55 (simplified keccak via SubtleCrypto async — sync fallback: lower)
-  return addr.toLowerCase();
-}
-
-async function keccak256Hex(hexNo0x){
-  // Browser has no keccak; use sha-256 as non-crypto label hash only for UI fingerprint
-  const bytes = new Uint8Array(hexNo0x.match(/.{1,2}/g).map(b=>parseInt(b,16)));
-  const dig = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(dig)].map(b=>b.toString(16).padStart(2,"0")).join("");
+async function fingerprintHex(hexNo0x){
+  try{
+    var bytes = new Uint8Array(hexNo0x.match(/.{1,2}/g).map(function(b){ return parseInt(b,16); }));
+    var dig = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.prototype.map.call(new Uint8Array(dig), function(b){ return b.toString(16).padStart(2,"0"); }).join("").slice(0,16);
+  }catch(e){ return "—"; }
 }
 
 function classify(raw){
-  const s = (raw||"").trim();
+  var s = (raw || "").trim();
   if(!s) return {kind:"empty", label:"—"};
   if(isTxHash(s)) return {kind:"tx", label:"TX HASH"};
   if(isHexAddress(s)) return {kind:"address", label:"EVM ADDRESS"};
@@ -343,109 +563,119 @@ function classify(raw){
   return {kind:"protocol", label:"PROTOCOL / NAME"};
 }
 
-function osintClassify(){
-  const c = classify(document.getElementById("osint-seed").value);
-  document.getElementById("osint-type").textContent = c.label;
+function esc(s){
+  return String(s).replace(/[&<>"']/g, function(m){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m];
+  });
 }
 
 function panel(title, body){
-  return `<div class="panel"><h3>${title}</h3><div class="kv">${body}</div></div>`;
+  return '<div class="panel"><h3>'+title+'</h3><div class="kv">'+body+'</div></div>';
 }
-
 function setGrid(id, html){ document.getElementById(id).innerHTML = html; }
 
-let lastDossier = null;
+var lastDossier = null;
 
-function osintReset(){
-  document.getElementById("osint-seed").value = "";
-  document.getElementById("osint-type").textContent = "—";
-  document.getElementById("osint-empty").hidden = false;
-  document.getElementById("osint-results").hidden = true;
-  document.getElementById("osint-status").textContent = "READY";
+function intelClassify(){
+  var c = classify(document.getElementById("intel-seed").value);
+  document.getElementById("intel-type").textContent = c.label;
+}
+
+function intelReset(){
+  document.getElementById("intel-seed").value = "";
+  document.getElementById("intel-type").textContent = "—";
+  document.getElementById("intel-empty").hidden = false;
+  document.getElementById("intel-results").hidden = true;
+  document.getElementById("intel-status").textContent = "READY";
   lastDossier = null;
 }
 
 function jumpTo(id){
-  document.querySelectorAll(".cat").forEach(c=>c.classList.remove("active"));
-  document.querySelectorAll("#osint-jump button").forEach(b=>b.classList.remove("active"));
-  const el = document.getElementById(id);
+  document.querySelectorAll("#intel-results .cat").forEach(function(c){ c.classList.remove("active"); });
+  document.querySelectorAll("#intel-jump button").forEach(function(b){ b.classList.remove("active"); });
+  var el = document.getElementById(id);
   if(el) el.classList.add("active");
-  const btn = document.querySelector(`#osint-jump button[data-id="${id}"]`);
+  var btn = document.querySelector('#intel-jump button[data-id="'+id+'"]');
   if(btn) btn.classList.add("active");
-  el?.scrollIntoView({behavior:"smooth", block:"start"});
+  if(el) el.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
-async function osintRun(){
-  const raw = document.getElementById("osint-seed").value.trim();
-  const c = classify(raw);
-  if(c.kind==="empty"){
-    document.getElementById("osint-status").textContent = "ENTER TARGET";
+async function intelRun(){
+  var raw = document.getElementById("intel-seed").value.trim();
+  var c = classify(raw);
+  if(c.kind === "empty"){
+    document.getElementById("intel-status").textContent = "ENTER TARGET";
     return;
   }
-  document.getElementById("osint-status").textContent = "COLLECTING…";
-  document.getElementById("osint-empty").hidden = true;
-  document.getElementById("osint-results").hidden = false;
+  document.getElementById("intel-status").textContent = "COLLECTING…";
+  document.getElementById("intel-empty").hidden = true;
+  document.getElementById("intel-results").hidden = false;
 
-  const lower = raw.toLowerCase();
-  const fp = isHexAddress(raw) ? (await keccak256Hex(raw.slice(2))).slice(0,16) : "—";
+  var lower = raw.toLowerCase();
+  var fp = isHexAddress(raw) ? await fingerprintHex(raw.slice(2)) : "—";
 
-  const cats = [
+  var cats = [
     ["cat-identity","Identity"],
     ["cat-infra","Infra"],
     ["cat-threat","Threat"],
     ["cat-exposure","Exposure"],
     ["cat-protocol","Protocol"],
     ["cat-gov","Governance"],
-    ["cat-finance","Finance"],
+    ["cat-finance","Finance"]
   ];
-  document.getElementById("osint-jump").innerHTML = cats.map(([id,lab],i)=>
-    `<button type="button" data-id="${id}" class="${i===0?"active":""}" onclick="jumpTo('${id}')">◈ ${lab}</button>`
-  ).join("");
+  document.getElementById("intel-jump").innerHTML = cats.map(function(pair, i){
+    return '<button type="button" data-id="'+pair[0]+'" class="'+(i===0?"active":"")+'" onclick="jumpTo(\''+pair[0]+'\')">'+pair[1]+'</button>';
+  }).join("");
 
   setGrid("grid-identity", [
-    panel("Target class", `<strong>${c.label}</strong>\nInput: ${esc(raw)}`),
+    panel("Target class", "<strong>"+esc(c.label)+"</strong>\nInput: "+esc(raw)),
     panel("Normalization", c.kind==="address"
-      ? `lower: ${esc(lower)}\nfingerprint(sha256-16): ${fp}\nNote: use EIP-55 checksum before publish`
-      : `normalized: ${esc(lower)}`),
-    panel("Hunt seeds", `• Explorer search\n• Label databases (Etherscan labels)\n• Cluster / funded-by edges\n• Related ENS / reverse records`),
+      ? "lower: "+esc(lower)+"\nfingerprint(sha256-16): "+fp+"\nNote: use EIP-55 checksum before publish"
+      : "normalized: "+esc(lower)),
+    panel("Hunt seeds", "• Explorer search\n• Label databases (Etherscan labels)\n• Cluster / funded-by edges\n• Related ENS / reverse records")
   ].join(""));
 
   setGrid("grid-infra", [
-    panel("Bytecode / deploy", c.kind==="address"||c.kind==="ens"
-      ? `Check: creator tx · factory · proxy EIP-1967 slots\n• implementation slot 0x3608…\n• admin slot 0xb531…\n• beacon patterns`
-      : `Resolve name → implementation addresses first`),
-    panel("Chain surface", `Multi-chain fanout:\nEthereum · Base · Arbitrum · Optimism · Polygon · BSC · Avalanche\nAsk: same deployer? same bytecode? bridge canonical?`),
-    panel("Dependencies", `Oracles · routers · vaults · messengers (CCIP/LayerZero/Wormhole)\nExternal callbacks (ERC777/1155/flashloan)`),
+    panel("Bytecode / deploy", (c.kind==="address"||c.kind==="ens")
+      ? "Check: creator tx · factory · proxy EIP-1967 slots\n• implementation slot 0x3608…\n• admin slot 0xb531…\n• beacon patterns"
+      : "Resolve name → implementation addresses first"),
+    panel("Chain surface", "Multi-chain fanout:\nEthereum · Base · Arbitrum · Optimism · Polygon · BSC · Avalanche\nAsk: same deployer? same bytecode? bridge canonical?"),
+    panel("Dependencies", "Oracles · routers · vaults · messengers (CCIP/LayerZero/Wormhole)\nExternal callbacks (ERC777/1155/flashloan)")
   ].join(""));
 
   setGrid("grid-threat", [
-    panel("Primary classes", `<span class="sev c">CRIT</span>Reentrancy / read-only reentrancy\n<span class="sev c">CRIT</span>Oracle manipulation / donation\n<span class="sev h">HIGH</span>Access control / init / upgrade\n<span class="sev h">HIGH</span>Bridge message validation\n<span class="sev m">MED</span>Share inflation / rounding`),
-    panel("ARIA mode hints", `ARIA-2 reentrancy · ARIA-3 oracle · ARIA-4 flashloan\nARIA-5 access · ARIA-6 math · ARIA-7 bridge · ARIA-8 gov\nARIA-10 SVM if Solana`),
-    panel("Quick questions", `• CEI violated?\n• Spot price in critical path?\n• Unprotected initialize?\n• Unsigned / under-validated cross-chain payload?`),
+    panel("Primary classes",
+      '<span class="sev c">CRIT</span> Reentrancy / read-only reentrancy\n'+
+      '<span class="sev c">CRIT</span> Oracle manipulation / donation\n'+
+      '<span class="sev h">HIGH</span> Access control / init / upgrade\n'+
+      '<span class="sev h">HIGH</span> Bridge message validation\n'+
+      '<span class="sev m">MED</span> Share inflation / rounding'),
+    panel("ARIA mode hints", "ARIA-2 reentrancy · ARIA-3 oracle · ARIA-4 flashloan\nARIA-5 access · ARIA-6 math · ARIA-7 bridge · ARIA-8 gov\nARIA-10 SVM if Solana · ASI / LLM×DeFi if agents"),
+    panel("Quick questions", "• CEI violated?\n• Spot price in critical path?\n• Unprotected initialize?\n• Unsigned / under-validated cross-chain payload?")
   ].join(""));
 
   setGrid("grid-exposure", [
-    panel("Approval / allowance", `Scan unlimited allowances to routers & drainers\nMap spenders · revoke.cash style triage`),
-    panel("Privileged ops", `owner · DEFAULT_ADMIN_ROLE · GUARDIAN · PAUSER · UPGRADER\nTimelock delay? Multisig threshold?`),
-    panel("Public blast radius", `Is the target OFAC-adjacent?\nMixer / sanctioned cluster proximity (manual OSINT)`),
+    panel("Approval / allowance", "Scan unlimited allowances to routers & drainers\nMap spenders · revoke-style triage"),
+    panel("Privileged ops", "owner · DEFAULT_ADMIN_ROLE · GUARDIAN · PAUSER · UPGRADER\nTimelock delay? Multisig threshold?"),
+    panel("Public blast radius", "Is the target OFAC-adjacent?\nMixer / sanctioned cluster proximity (manual OSINT)")
   ].join(""));
 
   setGrid("grid-protocol", [
-    panel("Composability", `Integrates with: AMMs · lending · LSTs · perps · restaking\nFailure mode: cascading insolvency / bad debt`),
-    panel("Invariant candidates", `solvency · NAV vs shares · collateral factor · bridge liquidity\nWrite Foundry invariants before deep dive`),
-    panel("Upgrade story", `Transparent / UUPS / Beacon / Diamond\nWho can upgrade? Storage layout collisions?`),
+    panel("Composability", "Integrates with: AMMs · lending · LSTs · perps · restaking\nFailure mode: cascading insolvency / bad debt"),
+    panel("Invariant candidates", "solvency · NAV vs shares · collateral factor · bridge liquidity\nWrite Foundry invariants before deep dive"),
+    panel("Upgrade story", "Transparent / UUPS / Beacon / Diamond\nWho can upgrade? Storage layout collisions?")
   ].join(""));
 
   setGrid("grid-gov", [
-    panel("Governance attack surface", `Flashloan voting · zero delay · open EXECUTOR\nQuorum games · proposal griefing`),
-    panel("Key ceremony", `Deployer EOA still privileged?\nRenounced? Timelocked? Hardware multisig?`),
-    panel("Emergency paths", `Pause · shutdown · migrate · clawback\nCan pause brick users unfairly?`),
+    panel("Governance attack surface", "Flashloan voting · zero delay · open EXECUTOR\nQuorum games · proposal griefing"),
+    panel("Key ceremony", "Deployer EOA still privileged?\nRenounced? Timelocked? Hardware multisig?"),
+    panel("Emergency paths", "Pause · shutdown · migrate · clawback\nCan pause brick users unfairly?")
   ].join(""));
 
   setGrid("grid-finance", [
-    panel("Economic lens", `TVL concentration · oracle latency · LP exit liquidity\nIs profit atomic in one tx? (flashloanable)`),
-    panel("Bounty posture", `Immunefi / Cantina / Code4rena / Sherlock\nSeverity ↔ funds at risk mapping`),
-    panel("Next actions", `1) Pull verified source\n2) Slither + manual entrypoints\n3) Fork PoC on Anvil\n4) BVET before submit`),
+    panel("Economic lens", "TVL concentration · oracle latency · LP exit liquidity\nIs profit atomic in one tx? (flashloanable)"),
+    panel("Bounty posture", "Immunefi / Cantina / Code4rena / Sherlock\nSeverity ↔ funds at risk mapping"),
+    panel("Next actions", "1) Pull verified source\n2) Slither + manual entrypoints\n3) Fork PoC on Anvil (FORK_EXECUTED)\n4) BVET before submit")
   ].join(""));
 
   lastDossier = {
@@ -454,86 +684,421 @@ async function osintRun(){
     class: c,
     fingerprint: fp,
     generated_at: new Date().toISOString(),
+    roe: "authorized-scope; fork-only-validation; no-mainnet-harm"
   };
-  document.getElementById("osint-summary").innerHTML =
-    `Brief ready for <strong>${esc(c.label)}</strong> · fingerprint <strong>${fp}</strong> · switch categories above`;
-  document.getElementById("osint-status").textContent = "DOSSIER READY";
+  document.getElementById("intel-summary").innerHTML =
+    'Brief ready for <strong>'+esc(c.label)+'</strong> · fingerprint <strong>'+fp+'</strong> · use category jump above';
+  document.getElementById("intel-status").textContent = "DOSSIER READY";
   jumpTo("cat-identity");
 }
 
-function esc(s){
-  return String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+function intelExport(kind){
+  if(!lastDossier) return;
+  var body, name, type;
+  if(kind === "json"){
+    body = JSON.stringify(lastDossier, null, 2);
+    name = "aip-web3-intel.json";
+    type = "application/json";
+  } else {
+    body = [
+      "# AIP Web3 Chain Intel",
+      "",
+      "- target: `"+lastDossier.target+"`",
+      "- class: "+lastDossier.class.label,
+      "- fingerprint: "+lastDossier.fingerprint,
+      "- at: "+lastDossier.generated_at,
+      "- ROE: "+lastDossier.roe,
+      "",
+      "## Next",
+      "- Verified source",
+      "- Entrypoint map",
+      "- Fork PoC (FORK_EXECUTED only)",
+      "- BVET gates",
+      ""
+    ].join("\n");
+    name = "aip-web3-intel.md";
+    type = "text/markdown";
+  }
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([body], {type: type}));
+  a.download = name;
+  a.click();
 }
 
-function osintExport(kind){
-  if(!lastDossier) return;
-  let body, name, type;
-  if(kind==="json"){
-    body = JSON.stringify(lastDossier, null, 2);
-    name = "aip-web3-intel.json"; type = "application/json";
+/* ---------- FORK_STRICT policy ---------- */
+function loadForkStrict(){
+  try{ forkStrict = localStorage.getItem(FORK_KEY) === "1"; }catch(e){ forkStrict = false; }
+  applyForkUI();
+}
+
+function applyForkUI(){
+  var banner = document.getElementById("fork-banner");
+  var title = document.getElementById("fork-banner-title");
+  var box = document.getElementById("attest-box");
+  var cb = document.getElementById("fork-attest");
+  if(forkStrict){
+    banner.classList.add("attested");
+    title.textContent = "FORK_EXECUTED — ATTESTED";
+    if(cb) cb.checked = true;
+    if(bannerAckSession) box.style.display = "none";
   } else {
-    body = `# AIP Web3 Chain Intel\n\n- target: \`${lastDossier.target}\`\n- class: ${lastDossier.class.label}\n- fingerprint: ${lastDossier.fingerprint}\n- at: ${lastDossier.generated_at}\n\n## Next\n- Verified source\n- Entrypoint map\n- Fork PoC\n- BVET gates\n`;
-    name = "aip-web3-intel.md"; type = "text/markdown";
+    banner.classList.remove("attested");
+    title.textContent = "FORK_EXECUTED ONLY";
+    box.style.display = "";
+    if(cb) cb.checked = false;
   }
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([body], {type}));
-  a.download = name; a.click();
+  renderAuditChrome();
+  document.querySelectorAll(".gated").forEach(function(el){
+    if(forkStrict){
+      el.classList.remove("locked");
+      el.disabled = false;
+      el.removeAttribute("aria-disabled");
+    } else {
+      el.classList.add("locked");
+      el.disabled = true;
+      el.setAttribute("aria-disabled", "true");
+    }
+  });
+  var lockNotes = document.querySelectorAll(".lock-notice");
+  lockNotes.forEach(function(n){ n.style.display = forkStrict ? "none" : "block"; });
+  var poc = document.getElementById("poc-scaffold-out");
+  if(poc){
+    poc.style.opacity = forkStrict ? "1" : "0.45";
+    poc.style.filter = forkStrict ? "none" : "blur(0.3px)";
+  }
+}
+
+function onForkAttest(){
+  var cb = document.getElementById("fork-attest");
+  if(cb && cb.checked){
+    try{ localStorage.setItem(FORK_KEY, "1"); }catch(e){}
+    forkStrict = true;
+    applyForkUI();
+    setAuditStatusMsg("Fork attestation saved · PoC actions unlocked", "ok");
+  } else {
+    try{ localStorage.removeItem(FORK_KEY); }catch(e){}
+    forkStrict = false;
+    bannerAckSession = false;
+    applyForkUI();
+    setAuditStatusMsg("Attestation cleared · PoC actions locked", "warn");
+  }
+}
+
+function ackForkBanner(){
+  if(!forkStrict){
+    var cb = document.getElementById("fork-attest");
+    if(cb && !cb.checked){
+      setAuditStatusMsg("Check the attestation box before acknowledging", "err");
+      return;
+    }
+    if(cb){ cb.checked = true; onForkAttest(); }
+  }
+  bannerAckSession = true;
+  document.getElementById("attest-box").style.display = "none";
+  setAuditStatusMsg("Banner acknowledged for this session (policy remains FORK_EXECUTED)", "ok");
+}
+
+function setAuditStatusMsg(msg, kind){
+  var el = document.getElementById("audit-gate-status");
+  if(!el) return;
+  el.textContent = msg;
+  el.className = "status" + (kind ? " "+kind : "");
+}
+
+function requireFork(actionLabel){
+  if(forkStrict) return true;
+  setAuditStatusMsg("LOCKED — attest FORK_EXECUTED before: "+actionLabel, "err");
+  document.getElementById("fork-banner").scrollIntoView({behavior:"smooth", block:"nearest"});
+  return false;
 }
 
 /* ---------- Audit Matrix ---------- */
-const AUDIT_TABS = [
-  {title:"Selector / proxy", sev:"high", blurb:"Map proxy patterns and selector collisions before logic review.",
+var POC_SCAFFOLD = [
+  "// SPDX-License-Identifier: MIT",
+  "pragma solidity ^0.8.20;",
+  "",
+  "// FORK_STRICT — AIP Web3 Suite",
+  "// Claims of exploitability require FORK_EXECUTED evidence only.",
+  "// No mainnet broadcast. No eth_call-only speculation as PoC.",
+  "",
+  'import "forge-std/Test.sol";',
+  "",
+  "contract AipWeb3PoC is Test {",
+  "    // Pin RPC + block via env; never rely on \"latest\" for evidence.",
+  "    function setUp() public {",
+  "        // createSelectFork — required for FORK_EXECUTED path",
+  '        vm.createSelectFork(vm.envString("ETH_RPC_URL"), vm.envUint("FORK_BLOCK"));',
+  "    }",
+  "",
+  "    function test_Hypothesis_ForkOnly() public {",
+  "        // arrange · act · assert funds / invariant movement",
+  "        // ASSERT: exploit path must NOT use vm.broadcast / vm.startBroadcast",
+  "        // ASSERT: no mainnet transaction submission from this test",
+  "        assertTrue(true, \"replace with before/after state assertions\");",
+  "    }",
+  "}"
+].join("\n");
+
+var AUDIT_TABS = [
+  {
+    title:"Selector / Proxy", sev:"high", sevLabel:"HIGH",
+    blurb:"Map proxy patterns and selector collisions before logic review.",
     items:[
       "Identify Transparent / UUPS / Beacon / Diamond",
       "Read EIP-1967 implementation & admin slots",
       "Check initialize / re-initialize protection",
       "Selector clashing across facets",
-      "Storage layout gap analysis vs upgrades",
+      "Storage layout gap analysis vs upgrades"
     ],
-    payloads:`// cast storage <proxy> 0x360894a13ba1a3210667c828492db98dca3e207260adc198dce132a76e8c5c1\n// forge inspect <Contract> methods`},
-  {title:"Reentrancy map", sev:"crit", blurb:"CEI, cross-function, read-only, ERC777/1155 hooks.",
-    items:["External calls before state finalization","Read-only reentrancy via views mid-call","ERC777/1155 receiver hooks","Cross-contract callback paths","NonReentrant coverage gaps"],
-    payloads:`// Heuristic: look for .call{value:} / safeTransferFrom before balances[user]=`},
-  {title:"Oracle / price", sev:"crit", blurb:"Spot AMM, TWAP, Chainlink staleness, donation attacks.",
-    items:["Spot price in borrow/mint/liquidate","Chainlink heartbeat / sequencers","Uniswap TWAP window too short","Donation / inflation of empty pools","L2 sequencer uptime assumptions"],
-    payloads:`// Check latestRoundData completeness + answeredInRound + updatedAt`},
-  {title:"Flashloan paths", sev:"crit", blurb:"Atomic capital → oracle/governance/share games.",
-    items:["Same-tx price influence","Governance vote with borrowed size","Share inflation on empty vaults","Collateral factor manipulation","Repay path accounting errors"],
-    payloads:`// Foundry: deal() + flashloan callback harness`},
-  {title:"Access / roles", sev:"high", blurb:"Ownable, AccessControl, init, upgrade auth.",
-    items:["Unprotected initialize","DEFAULT_ADMIN_ROLE held by EOA","Missing onlyOwner on critical setters","Upgradeable auth bypass","Timelock not wired to executor"],
-    payloads:`// grep -R "initialize\\|onlyOwner\\|grantRole" -n`},
-  {title:"Math / shares", sev:"high", blurb:"Rounding, inflation, fee-on-transfer, ERC4626.",
-    items:["First depositor inflation","Fee-on-transfer not accounted","Rounding direction favors attacker","Index/rate overflow edges","ERC4626 convertToAssets assumptions"],
-    payloads:`// Invariant: totalAssets vs sum(convertToAssets(shares))`},
-  {title:"Bridge / message", sev:"crit", blurb:"Message validation, replay, guardian thresholds.",
-    items:["Payload auth / signatures","Replay across chains","Hash collision / domain separator","Guardian threshold / honesty","Amount / token whitelist gaps"],
-    payloads:`// Verify _verifyMessage / lzReceive / ccipReceive auth`},
-  {title:"Governance", sev:"high", blurb:"Flashloan votes, delay, quorum, open executor.",
-    items:["Voting delay = 0","Open EXECUTOR_ROLE","Quorum manipulable","Proposal griefing cost","Emergency council powers"],
-    payloads:`// Simulate proposal + castVote with deal()'d tokens`},
-  {title:"Solana / SVM", sev:"high", blurb:"Account validation, signer checks, CPI.",
-    items:["Missing signer checks","Arbitrary CPI","PDA bump seed misuse","Account owner confusion","Integer wrap in unsafe math"],
-    payloads:`// Anchor: #[account(signer)] · has_one · constraint`},
-  {title:"Agentic AI (ASI)", sev:"high", blurb:"OWASP Agentic Top 10 adapted to on-chain agents.",
-    items:["Tool/privilege injection","Goal hijack via untrusted state","Memory poisoning","Excessive agency / spend limits","Multi-agent trust confusion"],
-    payloads:`ASI01 goal abuse · ASI02 tool misuse · ASI06 memory`},
-  {title:"LLM×DeFi agents", sev:"high", blurb:"Prompt injection into trading / ops agents.",
-    items:["Indirect injection via token metadata","Untrusted web browse → tool call","Signer exposed to model output","No human gate on transfers","Simulation ≠ execution divergence"],
-    payloads:`// Treat token name/symbol/URI as hostile input`},
-  {title:"BVET / report gate", sev:"med", blurb:"Pre-submission quality gate (ARIA-style).",
-    items:["Impact quantified in $ or invariants","Fork-executed PoC (Anvil)","Scope address exact match","Root cause ≠ symptom","Remediation patch sketched"],
-    payloads:`Gate: Scope · Impact · PoC · Root cause · Fix`},
-  {title:"ATT&CK for blockchain", sev:"med", blurb:"Map findings to chain-native tactics.",
-    items:["Initial access: compromised key / phishing dApp","Execution: malicious calldata / permit","Persistence: upgrade backdoor","Exfiltration: drain / bridge out","Impact: freeze / brick / theft"],
-    payloads:`Map each finding → tactic · technique · evidence`},
-  {title:"Known exploit patterns", sev:"crit", blurb:"Historical class → checklist (not copy-paste exploits).",
-    items:["Price oracle spot read (many 2020–2023 drains)","Empty market inflation","Bridge validation failures","Approval phishing / Permit","Governance flashloan majority"],
-    payloads:`Study: Wormhole · Nomad · Euler · Bean · PolyNetwork classes`},
-  {title:"Foundry PoC scaffold", sev:"med", blurb:"Starter test skeleton for authorized forks.",
-    items:["Fork URL + block pin","Selectors under test","Assertions on balances","No mainnet broadcast","Keep PoC minimal & ethical"],
-    payloads:`// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\nimport "forge-std/Test.sol";\n\ncontract AipWeb3PoC is Test {\n    function setUp() public {\n        vm.createSelectFork(vm.envString("ETH_RPC_URL"));\n    }\n    function test_Hypothesis() public {\n        // arrange · act · assert funds movement\n        assertTrue(true);\n    }\n}`},
+    payloads:"// cast storage <proxy> 0x360894a13ba1a3210667c828492db98dca3e207260adc198dce132a76e8c5c1\n// forge inspect <Contract> methods"
+  },
+  {
+    title:"Reentrancy", sev:"crit", sevLabel:"CRIT",
+    blurb:"CEI, cross-function, read-only, ERC777/1155 hooks.",
+    items:[
+      "External calls before state finalization",
+      "Read-only reentrancy via views mid-call",
+      "ERC777/1155 receiver hooks",
+      "Cross-contract callback paths",
+      "NonReentrant coverage gaps"
+    ],
+    payloads:"// Heuristic: look for .call{value:} / safeTransferFrom before balances[user]="
+  },
+  {
+    title:"Oracle / Price", sev:"crit", sevLabel:"CRIT",
+    blurb:"Spot AMM, TWAP, Chainlink staleness, donation attacks.",
+    items:[
+      "Spot price in borrow/mint/liquidate",
+      "Chainlink heartbeat / sequencers",
+      "Uniswap TWAP window too short",
+      "Donation / inflation of empty pools",
+      "L2 sequencer uptime assumptions"
+    ],
+    payloads:"// Check latestRoundData completeness + answeredInRound + updatedAt"
+  },
+  {
+    title:"Flashloan Paths", sev:"crit", sevLabel:"CRIT",
+    blurb:"Atomic capital → oracle / governance / share games.",
+    items:[
+      "Same-tx price influence",
+      "Governance vote with borrowed size",
+      "Share inflation on empty vaults",
+      "Collateral factor manipulation",
+      "Repay path accounting errors"
+    ],
+    payloads:"// Foundry: deal() + flashloan callback harness on Anvil fork only"
+  },
+  {
+    title:"Access / Roles", sev:"high", sevLabel:"HIGH",
+    blurb:"Ownable, AccessControl, init, upgrade auth.",
+    items:[
+      "Unprotected initialize",
+      "DEFAULT_ADMIN_ROLE held by EOA",
+      "Missing onlyOwner on critical setters",
+      "Upgradeable auth bypass",
+      "Timelock not wired to executor"
+    ],
+    payloads:'// grep -R "initialize\\|onlyOwner\\|grantRole" -n'
+  },
+  {
+    title:"Math / Shares", sev:"high", sevLabel:"HIGH",
+    blurb:"Rounding, inflation, fee-on-transfer, ERC4626.",
+    items:[
+      "First depositor inflation",
+      "Fee-on-transfer not accounted",
+      "Rounding direction favors attacker",
+      "Index/rate overflow edges",
+      "ERC4626 convertToAssets assumptions"
+    ],
+    payloads:"// Invariant: totalAssets vs sum(convertToAssets(shares))"
+  },
+  {
+    title:"Bridge / Message", sev:"crit", sevLabel:"CRIT",
+    blurb:"Message validation, replay, guardian thresholds.",
+    items:[
+      "Payload auth / signatures",
+      "Replay across chains",
+      "Hash collision / domain separator",
+      "Guardian threshold / honesty",
+      "Amount / token whitelist gaps"
+    ],
+    payloads:"// Verify _verifyMessage / lzReceive / ccipReceive auth"
+  },
+  {
+    title:"Governance", sev:"high", sevLabel:"HIGH",
+    blurb:"Flashloan votes, delay, quorum, open executor.",
+    items:[
+      "Voting delay = 0",
+      "Open EXECUTOR_ROLE",
+      "Quorum manipulable",
+      "Proposal griefing cost",
+      "Emergency council powers"
+    ],
+    payloads:"// Simulate proposal + castVote with deal()'d tokens on fork"
+  },
+  {
+    title:"Solana / SVM", sev:"high", sevLabel:"HIGH",
+    blurb:"Account validation, signer checks, CPI.",
+    items:[
+      "Missing signer checks",
+      "Arbitrary CPI",
+      "PDA bump seed misuse",
+      "Account owner confusion",
+      "Integer wrap in unsafe math"
+    ],
+    payloads:"// Anchor: #[account(signer)] · has_one · constraint"
+  },
+  {
+    title:"Agentic AI (ASI)", sev:"high", sevLabel:"HIGH",
+    blurb:"OWASP Agentic Top 10 adapted to on-chain agents.",
+    items:[
+      "Tool/privilege injection",
+      "Goal hijack via untrusted state",
+      "Memory poisoning",
+      "Excessive agency / spend limits",
+      "Multi-agent trust confusion"
+    ],
+    payloads:"ASI01 goal abuse · ASI02 tool misuse · ASI06 memory"
+  },
+  {
+    title:"LLM × DeFi Agents", sev:"high", sevLabel:"HIGH",
+    blurb:"Prompt injection into trading / ops agents.",
+    items:[
+      "Indirect injection via token metadata",
+      "Untrusted web browse → tool call",
+      "Signer exposed to model output",
+      "No human gate on transfers",
+      "Simulation ≠ execution divergence"
+    ],
+    payloads:"// Treat token name/symbol/URI as hostile input"
+  },
+  {
+    title:"BVET Report Gate", sev:"med", sevLabel:"MED",
+    blurb:"Pre-submission quality gate with fork-evidence checklist.",
+    items:[
+      "Impact quantified in $ or invariants",
+      "Fork-executed PoC (Anvil) — FORK_EXECUTED",
+      "Fork URL / RPC + pinned block recorded",
+      "Before/after state diff captured",
+      "Test pass log attached (forge test -vv)",
+      "Assert: no vm.broadcast / no mainnet tx",
+      "Scope address exact match",
+      "Root cause ≠ symptom",
+      "Remediation patch sketched"
+    ],
+    payloads:"Gate: Scope · Impact · PoC · Root cause · Fix\nFork evidence: URL · block · state diff · pass log · no broadcast",
+    isBvet:true
+  },
+  {
+    title:"ATT&CK (Chain)", sev:"med", sevLabel:"MED",
+    blurb:"Map findings to chain-native tactics.",
+    items:[
+      "Initial access: compromised key / phishing dApp",
+      "Execution: malicious calldata / permit",
+      "Persistence: upgrade backdoor",
+      "Exfiltration: drain / bridge out",
+      "Impact: freeze / brick / theft"
+    ],
+    payloads:"Map each finding → tactic · technique · evidence"
+  },
+  {
+    title:"Known Exploit Classes", sev:"crit", sevLabel:"CRIT",
+    blurb:"Historical class → checklist (methodology only — no exploit payloads).",
+    items:[
+      "Price oracle spot read (many 2020–2023 drains)",
+      "Empty market inflation",
+      "Bridge validation failures",
+      "Approval phishing / Permit",
+      "Governance flashloan majority"
+    ],
+    payloads:"Study classes: Wormhole · Nomad · Euler · Bean · PolyNetwork (patterns, not copy-paste)"
+  },
+  {
+    title:"Foundry PoC Scaffold", sev:"med", sevLabel:"MED",
+    blurb:"Starter test skeleton — locked until fork attestation.",
+    items:[
+      "Fork URL + block pin",
+      "Selectors under test",
+      "Assertions on balances / invariants",
+      "No mainnet broadcast (no vm.broadcast on exploit path)",
+      "Keep PoC minimal & ethical"
+    ],
+    payloads: POC_SCAFFOLD,
+    isPoc:true,
+    gated:true
+  }
 ];
+
+function sevClass(sev){
+  if(sev==="crit") return "c";
+  if(sev==="high") return "h";
+  if(sev==="med") return "m";
+  return "l";
+}
+
+function renderAuditChrome(){
+  var wrap = document.getElementById("drawer-tabs");
+  wrap.innerHTML = AUDIT_TABS.map(function(t, i){
+    var locked = t.gated && !forkStrict;
+    return '<button type="button" class="dtab'+(i===currentAudit?" active":"")+(locked?" locked-tab":"")+'" onclick="selectAudit('+i+')">'+
+      '<span class="dtab-num">'+String(i+1).padStart(2,"0")+'</span>'+esc(t.title)+'</button>';
+  }).join("");
+}
+
+var currentAudit = 0;
+
+function renderAuditPanes(){
+  var main = document.getElementById("audit-panes");
+  main.innerHTML = AUDIT_TABS.map(function(t, i){
+    var checks = t.items.map(function(it, j){
+      return '<label class="check"><input type="checkbox" data-tab="'+i+'" data-i="'+j+'"> <span>'+esc(it)+'</span></label>';
+    }).join("");
+
+    var extra = "";
+    if(t.isBvet){
+      extra = '<div class="card nova-edge" style="margin-top:14px;margin-bottom:0">'+
+        '<div class="label">Fork-evidence checklist (required)</div>'+
+        '<label class="check"><input type="checkbox" data-fork-ev="1"> Fork URL / RPC endpoint recorded</label>'+
+        '<label class="check"><input type="checkbox" data-fork-ev="1"> Block number pinned</label>'+
+        '<label class="check"><input type="checkbox" data-fork-ev="1"> Before / after state diff attached</label>'+
+        '<label class="check"><input type="checkbox" data-fork-ev="1"> forge test pass log attached</label>'+
+        '<label class="check"><input type="checkbox" data-fork-ev="1"> Confirmed: no broadcast / no mainnet exploit tx</label>'+
+        '</div>';
+    }
+
+    var lockHtml = t.gated
+      ? '<div class="lock-notice"><strong>LOCKED</strong> until fork attestation. Check the banner above: PoCs must be FORK_EXECUTED on a local Anvil fork only.</div>'
+      : "";
+
+    var outId = t.isPoc ? ' id="poc-scaffold-out"' : "";
+    var gateBtns = t.gated
+      ? '<button class="btn gated locked" type="button" disabled onclick="copyAudit('+i+')">Copy scaffold</button>'+
+        '<button class="btn star gated locked" type="button" disabled onclick="exportPoc()">Export PoC .sol</button>'+
+        '<button class="btn danger gated locked" type="button" disabled onclick="claimFinding('+i+')">Claim finding</button>'+
+        '<button class="btn" type="button" onclick="scoreAudit('+i+')">Score checklist</button>'
+      : '<button class="btn" type="button" onclick="copyAudit('+i+')">Copy notes</button>'+
+        (t.isBvet ? '<button class="btn star gated locked" type="button" disabled onclick="exportBvetReport()">Export gate report</button>' : '')+
+        '<button class="btn star" type="button" onclick="scoreAudit('+i+')">Score checklist</button>'+
+        (t.isBvet ? '<button class="btn danger gated locked" type="button" disabled onclick="claimFinding('+i+')">Claim finding</button>' : '');
+
+    return '<div class="audit-pane'+(i===0?" active":"")+'" id="audit-pane-'+i+'">'+
+      '<div class="card star-edge">'+
+      '<div class="label">Module '+String(i+1).padStart(2,"0")+' / 15</div>'+
+      '<div class="audit-title-row">'+
+      '<span class="sev '+sevClass(t.sev)+'">'+t.sevLabel+'</span>'+
+      '<h2>'+esc(t.title)+'</h2>'+
+      '</div>'+
+      '<p class="meta">'+esc(t.blurb)+'</p>'+
+      lockHtml+
+      '<div style="margin-top:14px">'+checks+'</div>'+
+      extra+
+      '<div class="label" style="margin-top:18px">Operator notes / commands</div>'+
+      '<div class="out"'+outId+'>'+esc(t.payloads)+'</div>'+
+      '<div class="row" style="margin-top:12px">'+gateBtns+'</div>'+
+      '<div class="status" id="audit-score-'+i+'"></div>'+
+      '</div></div>';
+  }).join("") + '<div class="status" id="audit-gate-status" style="margin-top:8px">FORK_EXECUTED policy active — attest to unlock PoC actions</div>';
+}
 
 function toggleDrawer(){
   document.getElementById("tab-drawer").classList.toggle("open");
@@ -544,56 +1109,113 @@ function closeDrawer(){
   document.getElementById("drawer-overlay").classList.remove("open");
 }
 
-function renderAuditPanes(){
-  const main = document.getElementById("audit-main");
-  main.innerHTML = AUDIT_TABS.map((t,i)=>{
-    const checks = t.items.map((it,j)=>
-      `<label class="check"><input type="checkbox" data-tab="${i}" data-i="${j}"> <span>${esc(it)}</span></label>`
-    ).join("");
-    return `<div class="audit-pane ${i===0?"active":""}" id="audit-pane-${i}">
-      <div class="card star-edge">
-        <div class="label">Module ${String(i+1).padStart(2,"0")} / 15</div>
-        <h2 style="font:800 22px var(--display);letter-spacing:.06em;text-transform:uppercase;margin:4px 0 8px">${esc(t.title)}</h2>
-        <p class="meta">${esc(t.blurb)}</p>
-        <div style="margin-top:14px">${checks}</div>
-        <div class="label" style="margin-top:16px">Operator notes / commands</div>
-        <div class="out" id="audit-pay-${i}">${esc(t.payloads)}</div>
-        <div class="row" style="margin-top:12px">
-          <button class="btn" type="button" onclick="copyAudit(${i})">Copy notes</button>
-          <button class="btn star" type="button" onclick="scoreAudit(${i})">Score checklist</button>
-        </div>
-        <div class="status" id="audit-score-${i}"></div>
-      </div>
-    </div>`;
-  }).join("");
-}
-
 function selectAudit(i){
-  document.querySelectorAll(".dtab").forEach((b,idx)=>b.classList.toggle("active", idx===i));
-  document.querySelectorAll(".audit-pane").forEach((p,idx)=>p.classList.toggle("active", idx===i));
-  document.getElementById("tab-label").textContent = AUDIT_TABS[i].title;
-  document.getElementById("audit-status").textContent = `MODULE ${String(i+1).padStart(2,"0")} / 15`;
+  currentAudit = i;
+  document.querySelectorAll(".dtab").forEach(function(b, idx){ b.classList.toggle("active", idx===i); });
+  document.querySelectorAll(".audit-pane").forEach(function(p, idx){ p.classList.toggle("active", idx===i); });
+  document.getElementById("audit-module-title").textContent = AUDIT_TABS[i].title;
+  document.getElementById("audit-status").textContent = "MODULE "+String(i+1).padStart(2,"0")+" / 15";
   closeDrawer();
 }
 
 function copyAudit(i){
-  navigator.clipboard.writeText(AUDIT_TABS[i].payloads).then(()=>{
-    const el = document.getElementById("audit-score-"+i);
-    el.textContent = "Notes copied.";
-    el.className = "status ok";
-  });
+  var t = AUDIT_TABS[i];
+  if(t.gated && !requireFork("Copy scaffold")) return;
+  var text = t.payloads;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      var el = document.getElementById("audit-score-"+i);
+      el.textContent = "Notes copied to clipboard.";
+      el.className = "status ok";
+    });
+  } else {
+    var el = document.getElementById("audit-score-"+i);
+    el.textContent = "Clipboard unavailable — select text from notes block.";
+    el.className = "status warn";
+  }
 }
 
 function scoreAudit(i){
-  const boxes = [...document.querySelectorAll(`input[type=checkbox][data-tab="${i}"]`)];
-  const done = boxes.filter(b=>b.checked).length;
-  const el = document.getElementById("audit-score-"+i);
-  el.textContent = `Checklist ${done}/${boxes.length} covered · ${AUDIT_TABS[i].sev.toUpperCase()} priority class`;
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type=checkbox][data-tab="'+i+'"]'));
+  var done = boxes.filter(function(b){ return b.checked; }).length;
+  var el = document.getElementById("audit-score-"+i);
+  var extra = "";
+  if(AUDIT_TABS[i].isBvet){
+    var fe = Array.prototype.slice.call(document.querySelectorAll('input[data-fork-ev="1"]'));
+    var fedone = fe.filter(function(b){ return b.checked; }).length;
+    extra = " · fork-evidence "+fedone+"/"+fe.length;
+  }
+  el.textContent = "Checklist "+done+"/"+boxes.length+" covered · "+AUDIT_TABS[i].sevLabel+" priority"+extra;
   el.className = "status ok";
 }
 
+function exportPoc(){
+  if(!requireFork("Export PoC")) return;
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([POC_SCAFFOLD], {type:"text/plain"}));
+  a.download = "AipWeb3PoC.t.sol";
+  a.click();
+  setAuditStatusMsg("Exported AipWeb3PoC.t.sol — FORK_STRICT scaffold", "ok");
+}
+
+function exportBvetReport(){
+  if(!requireFork("Export gate report")) return;
+  var fe = Array.prototype.slice.call(document.querySelectorAll('input[data-fork-ev="1"]'));
+  var lines = [
+    "# AIP Web3 — BVET Report Gate",
+    "",
+    "## Policy",
+    "- FORK_EXECUTED ONLY",
+    "- No mainnet exploit transactions",
+    "",
+    "## Fork evidence",
+    fe.map(function(b, i){
+      var labels = [
+        "Fork URL / RPC recorded",
+        "Block pinned",
+        "Before/after state diff",
+        "Test pass log",
+        "No broadcast confirmed"
+      ];
+      return "- ["+(b.checked?"x":" ")+"] "+labels[i];
+    }).join("\n"),
+    "",
+    "## Gates",
+    "- Scope",
+    "- Impact",
+    "- PoC (fork)",
+    "- Root cause",
+    "- Fix",
+    ""
+  ].join("\n");
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines], {type:"text/markdown"}));
+  a.download = "aip-web3-bvet-gate.md";
+  a.click();
+  setAuditStatusMsg("Exported BVET gate report", "ok");
+}
+
+function claimFinding(i){
+  if(!requireFork("Claim finding")) return;
+  if(AUDIT_TABS[i].isBvet){
+    var fe = Array.prototype.slice.call(document.querySelectorAll('input[data-fork-ev="1"]'));
+    var all = fe.every(function(b){ return b.checked; });
+    if(!all){
+      setAuditStatusMsg("Claim blocked — complete fork-evidence checklist first", "err");
+      return;
+    }
+  }
+  var el = document.getElementById("audit-score-"+i);
+  el.textContent = "Finding claim recorded locally as FORK_EXECUTED-eligible draft (not submitted).";
+  el.className = "status ok";
+  setAuditStatusMsg("Claim draft OK — still must attach real fork artifacts before bounty submit", "ok");
+}
+
+/* boot */
 renderAuditPanes();
-osintClassify();
+loadForkStrict();
+selectAudit(0);
+intelClassify();
 </script>
 </body>
 </html>
