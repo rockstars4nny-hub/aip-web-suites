@@ -473,7 +473,7 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
     <div class="fork-banner" id="fork-banner">
       <div class="fork-banner-body">
         <div class="fork-banner-title" id="fork-banner-title">FORK LAB — REAL EXECUTION</div>
-        <p><strong>Checklists do not count.</strong> Paste a contract address and/or Solidity test, then hit <strong>Run Fork</strong>. The local Fork Lab backend executes <code>forge test --fork-url --fork-block-number</code>. Unlock happens only after a real <strong>FORK_EXECUTED</strong> pass. No mainnet broadcast.</p>
+        <p><strong>Address in → fork runs.</strong> Prefills from Chain Intel. Hit <strong>Run Fork</strong> — backend always executes the full 62-test suite via <code>forge test --fork-url</code>. Custom Solidity is optional. Unlock only after real <strong>FORK_EXECUTED</strong>.</p>
         <div class="fork-health down" id="fork-health">BACKEND: checking…</div>
       </div>
     </div>
@@ -493,12 +493,15 @@ input:focus,textarea:focus,select:focus{border-color:rgba(245,197,66,.45); box-s
           <input class="seed" id="fork-block" type="text" placeholder="latest → pin" spellcheck="false">
         </div>
       </div>
-      <div class="label" style="margin-top:10px">Optional EXTRA custom tests (full suite always runs)</div>
-      <textarea class="seed" id="fork-solidity" placeholder="// optional EXTRA .t.sol — full suite always runs; vm.broadcast REJECTED"></textarea>
+      <label class="check" style="margin-top:12px">
+        <input type="checkbox" id="fork-include-custom"> Include optional custom Solidity below (otherwise ignored — address-only full suite)
+      </label>
+      <div class="label" style="margin-top:10px">Optional EXTRA custom tests</div>
+      <textarea class="seed" id="fork-solidity" placeholder="// leave empty — full suite runs from address alone"></textarea>
       <div class="row" style="margin-top:12px">
         <button class="btn primary" type="button" id="fork-run-btn" onclick="runRealFork()">▶ Run Fork</button>
         <button class="btn" type="button" onclick="inspectOnFork()">Inspect on fork</button>
-        <button class="btn" type="button" onclick="loadForkTemplate()">Load template</button>
+        <button class="btn" type="button" onclick="loadForkTemplate()">Preview full suite</button>
         <button class="btn star" type="button" onclick="downloadForkArtifact()" id="fork-dl-btn" disabled>Download artifact</button>
       </div>
       <div class="status" id="fork-run-status">Waiting for a real forge fork run.</div>
@@ -730,7 +733,12 @@ function sendToAuditMatrix(){
   switchMode("audit");
   var recs = lastDossier.recommended_modules || [];
   if(recs.length) selectAudit(recs[0]);
-  setAuditStatusMsg("Loaded Chain Intel → "+lastDossier.target, "ok");
+  prefillForkFromIntel();
+  var fa = document.getElementById("fork-address");
+  var tgt = lastDossier.target;
+  if(lastDossier.live && lastDossier.live.resolved) tgt = lastDossier.live.resolved;
+  if(fa && tgt && /^0x[a-fA-F0-9]{40}$/.test(tgt)) fa.value = tgt;
+  setAuditStatusMsg("Loaded Chain Intel → "+lastDossier.target+" — hit Run Fork", "ok");
 }
 
 function renderIntelBrief(){
@@ -1134,12 +1142,11 @@ async function refreshForkHealth(){
 function prefillForkFromIntel(){
   var d = loadIntelDossier();
   var addrEl = document.getElementById("fork-address");
-  if(!addrEl) return;
-  if(d && d.target && /^0x[a-fA-F0-9]{40}$/.test(d.target) && !addrEl.value){
-    addrEl.value = d.target;
-  }
-  if(d && d.live && d.live.resolved && /^0x[a-fA-F0-9]{40}$/.test(d.live.resolved) && !addrEl.value){
-    addrEl.value = d.live.resolved;
+  if(!addrEl || !d) return;
+  var resolved = (d.live && d.live.resolved) ? d.live.resolved : null;
+  var tgt = resolved || d.target || "";
+  if(/^0x[a-fA-F0-9]{40}$/.test(tgt)){
+    if(!addrEl.value || addrEl.value !== tgt) addrEl.value = tgt;
   }
 }
 
@@ -1155,7 +1162,8 @@ async function loadForkTemplate(){
     var j = await r.json();
     if(!j.ok && !j.solidity) throw new Error(j.error||"no suite");
     document.getElementById("fork-solidity").value = j.solidity || "";
-    setForkStatus("Full suite loaded in editor (also always injected on Run Fork). Optional: append custom tests in a second contract.", "ok");
+    var inc = document.getElementById("fork-include-custom"); if(inc) inc.checked = false;
+    setForkStatus("Full suite preview loaded (NOT sent on Run Fork unless you check Include custom). Address-only Run Fork is enough.", "ok");
   }catch(e){
     // offline stub
     document.getElementById("fork-solidity").value = "// Backend offline — Run Fork still requests full suite server-side.\n// Start: ./fork-lab/start.sh\n";
@@ -1207,13 +1215,26 @@ async function inspectOnFork(){
 async function runRealFork(){
   var btn = document.getElementById("fork-run-btn");
   if(btn){ btn.disabled = true; btn.textContent = "Running forge…"; }
-  setForkStatus("Running forge test --fork-url …", "warn");
-  setForkLog("Submitting to Fork Lab backend…");
+  prefillForkFromIntel();
   var address = (document.getElementById("fork-address").value||"").trim();
-  var solidity = (document.getElementById("fork-solidity").value||"").trim();
+  if(!address){
+    var d = loadIntelDossier();
+    if(d && d.live && d.live.resolved) address = d.live.resolved;
+    else if(d && d.target) address = d.target;
+    if(address) document.getElementById("fork-address").value = address;
+  }
+  if(!/^0x[a-fA-F0-9]{40}$/.test(address)){
+    setForkStatus("Need a contract address — run Chain Intel or paste 0x…", "err");
+    if(btn){ btn.disabled = false; btn.textContent = "▶ Run Fork"; }
+    return;
+  }
+  setForkStatus("Running full fork suite for "+address+" …", "warn");
+  setForkLog("Address-only full suite → Fork Lab backend…");
+  var includeCustom = !!(document.getElementById("fork-include-custom") && document.getElementById("fork-include-custom").checked);
+  var solidity = includeCustom ? ((document.getElementById("fork-solidity").value||"").trim() || null) : null;
   var payload = {
-    address: address || null,
-    solidity: solidity || null,
+    address: address,
+    solidity: solidity,
     rpc: (document.getElementById("fork-rpc").value||"").trim() || null,
     block: (document.getElementById("fork-block").value||"").trim() || null
   };

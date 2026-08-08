@@ -24,6 +24,20 @@ BROADCAST_BAN = re.compile(
 )
 ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
+def _strip_solidity_comments(src: str) -> str:
+    """Remove // and /* */ comments so policy checks ignore docs like 'no vm.broadcast'."""
+    # block comments
+    out = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    # line comments
+    out = re.sub(r"//.*?$", "", out, flags=re.M)
+    return out
+
+
+def _has_broadcast_code(src: str) -> bool:
+    return bool(BROADCAST_BAN.search(_strip_solidity_comments(src or "")))
+
+
+
 FULL_SUITE_PATH = ROOT / "templates" / "AipFullForkSuite.t.sol"
 
 DEFAULT_POC = '''// SPDX-License-Identifier: MIT
@@ -223,23 +237,23 @@ def run_fork(
             "attestation": "REJECTED_NO_ADDRESS",
         }
 
+    # Address-only is enough. Full suite is always injected server-side.
+    # Custom solidity is OPTIONAL and ignored when empty / is the full suite preview.
     custom = (solidity or "").strip()
-    # If UI pasted only a tiny template, still run full suite; treat paste as custom extra.
-    if custom and BROADCAST_BAN.search(custom):
-        return {
-            "ok": False,
-            "error": "REJECTED: solidity contains broadcast helpers. FORK_EXECUTED only — no mainnet send.",
-            "attestation": "REJECTED_BROADCAST",
-        }
+    if custom:
+        if "contract AipFullForkSuite" in custom:
+            custom = ""
+        elif _has_broadcast_code(custom):
+            return {
+                "ok": False,
+                "error": "REJECTED: custom solidity contains live vm.broadcast / startBroadcast. Comments mentioning broadcast are OK; executable broadcast is not.",
+                "attestation": "REJECTED_BROADCAST",
+            }
 
     try:
         full_suite = render_full_suite(addr)
     except Exception as e:
         return {"ok": False, "error": str(e), "attestation": "FORK_ERROR"}
-
-    # Avoid duplicating full suite if user pasted it wholesale
-    if custom and "contract AipFullForkSuite" in custom:
-        custom = ""
 
     # pin block if not provided
     pinned = str(block).strip() if block not in (None, "") else ""
