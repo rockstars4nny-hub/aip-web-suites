@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIP Web3 Suite — Chain Intel + Audit Matrix</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --void:#05080f; --elev:#0c1220; --panel:#0a101c;
+  --line:rgba(125,211,252,.12); --text:#e8eef7; --dim:#8b9bb4; --muted:#5c6b82;
+  --plasma:#5eead4; --star:#f5c542; --nova:#ff6b5a; --ion:#38bdf8; --ok:#34d399;
+  --sans:"DM Sans",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+  --display:"Syne",system-ui,sans-serif;
+  --radius:8px; --ease:cubic-bezier(.2,0,0,1);
+}
+html,body{min-height:100%; background:var(--void); color:var(--text); font-family:var(--sans); -webkit-font-smoothing:antialiased}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:
+    radial-gradient(ellipse 80% 45% at 12% -10%, rgba(245,197,66,.10), transparent 55%),
+    radial-gradient(ellipse 70% 40% at 88% 0%, rgba(94,234,212,.09), transparent 50%),
+    linear-gradient(180deg,#071018 0%,#05080f 45%,#03060c 100%);
+}
+.mode-bar{
+  position:fixed; top:0; left:0; right:0; z-index:10000; display:flex; align-items:stretch;
+  height:40px; background:rgba(5,8,15,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(16px);
+}
+.mode-btn{
+  flex:1; border:none; background:transparent; font:600 10px/1 var(--mono);
+  letter-spacing:.12em; text-transform:uppercase; cursor:pointer; color:var(--muted); transition:.15s var(--ease);
+}
+.mode-btn .mode-label{display:flex; align-items:center; justify-content:center; gap:.5rem; height:100%}
+.mode-dot{width:6px; height:6px; border-radius:50%}
+.mode-btn.osint-btn .mode-dot{background:var(--plasma)}
+.mode-btn.audit-btn .mode-dot{background:var(--star); box-shadow:0 0 8px rgba(245,197,66,.45)}
+.mode-btn.osint-btn.active{background:rgba(94,234,212,.08); color:var(--plasma); border-bottom:2px solid var(--plasma)}
+.mode-btn.audit-btn.active{background:rgba(245,197,66,.08); color:var(--star); border-bottom:2px solid var(--star)}
+.mode-btn:not(.active):hover{background:rgba(94,234,212,.05); color:var(--text)}
+.suite-brand{
+  position:fixed; top:10px; left:50%; transform:translateX(-50%); z-index:10001; pointer-events:none;
+  font:800 11px/1 var(--display); letter-spacing:.2em; color:rgba(232,238,247,.5); text-transform:uppercase;
+}
+.suite-brand em{font-style:normal; color:var(--star)}
+
+#osint-app,#audit-app{position:relative; z-index:1; padding-top:40px; min-height:100vh}
+#audit-app{display:none}
+
+.hdr{
+  position:sticky; top:40px; z-index:100; display:flex; align-items:center; justify-content:space-between;
+  gap:12px; padding:12px 20px; border-bottom:1px solid var(--line);
+  background:rgba(5,8,15,.88); backdrop-filter:blur(18px) saturate(1.15);
+}
+.hdr-logo-name{font:800 18px/1.1 var(--display); letter-spacing:.08em; text-transform:uppercase}
+.hdr-logo-sub{display:block; margin-top:4px; font:500 9px var(--mono); letter-spacing:.14em; color:var(--plasma); text-transform:uppercase}
+.hdr-status{font:500 11px var(--mono); color:var(--dim); letter-spacing:.06em}
+.hdr-btn,.btn{
+  appearance:none; border:1px solid rgba(94,234,212,.18); background:transparent; color:var(--dim);
+  border-radius:var(--radius); padding:8px 12px; font:700 11px var(--mono); letter-spacing:.08em;
+  text-transform:uppercase; cursor:pointer; transition:.15s var(--ease);
+}
+.hdr-btn:hover,.btn:hover{color:var(--text); border-color:rgba(94,234,212,.35); background:rgba(94,234,212,.08)}
+.btn.primary{
+  border:none; color:#041016; background:linear-gradient(135deg,var(--plasma),#2dd4bf);
+  box-shadow:0 0 20px rgba(94,234,212,.22);
+}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.star{border-color:rgba(245,197,66,.35); color:var(--star)}
+.btn.danger{border-color:rgba(255,107,90,.35); color:var(--nova)}
+
+.main{max-width:1100px; margin:0 auto; padding:20px 20px 64px}
+.card{
+  background:rgba(12,18,32,.72); border:1px solid var(--line); border-radius:10px;
+  border-left:3px solid var(--plasma); padding:16px 18px; margin-bottom:14px;
+}
+.card.star-edge{border-left-color:var(--star)}
+.label{font:500 10px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:8px}
+.row{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+input[type=text],input[type=password],textarea,select{
+  width:100%; background:rgba(5,8,15,.85); border:1px solid rgba(94,234,212,.18);
+  border-radius:var(--radius); color:var(--text); font:400 13px/1.4 var(--sans);
+  padding:10px 12px; outline:none;
+}
+textarea{min-height:100px; resize:vertical; font-family:var(--mono); font-size:12px}
+input:focus,textarea:focus,select:focus{
+  border-color:rgba(245,197,66,.45); box-shadow:0 0 0 1px rgba(245,197,66,.15);
+}
+.seed{flex:1; min-width:220px}
+.badge{
+  font:600 10px var(--mono); letter-spacing:.08em; text-transform:uppercase;
+  padding:6px 10px; border-radius:6px; border:1px solid var(--line); color:var(--ion); background:rgba(56,189,248,.08);
+}
+.pills{display:flex; flex-wrap:wrap; gap:8px; margin:12px 0}
+.pill{
+  font:500 11px var(--mono); letter-spacing:.06em; color:var(--dim);
+  border:1px solid var(--line); border-radius:999px; padding:6px 10px;
+}
+.empty{
+  text-align:center; padding:48px 16px; color:var(--dim);
+}
+.empty h2{font:800 20px var(--display); letter-spacing:.08em; color:var(--text); margin-bottom:8px; text-transform:uppercase}
+.empty p{font:400 13px var(--sans); max-width:520px; margin:0 auto 14px; line-height:1.5}
+
+.jump{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0}
+.jump button{
+  appearance:none; border:1px solid var(--line); background:transparent; color:var(--dim);
+  border-radius:6px; padding:7px 10px; font:600 10px var(--mono); letter-spacing:.08em;
+  text-transform:uppercase; cursor:pointer;
+}
+.jump button:hover,.jump button.active{color:var(--plasma); border-color:rgba(94,234,212,.35); background:rgba(94,234,212,.08)}
+
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:10px}
+.panel{
+  background:rgba(5,8,15,.55); border:1px solid var(--line); border-radius:10px; padding:12px 14px;
+}
+.panel h3{font:600 11px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--plasma); margin-bottom:8px}
+.panel .kv{font:400 12px/1.55 var(--mono); color:var(--dim); white-space:pre-wrap; word-break:break-word}
+.panel .kv strong{color:var(--text); font-weight:500}
+.cat{display:none; margin-top:12px}
+.cat.active{display:block}
+.cat-h{
+  font:600 11px var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--plasma);
+  margin:18px 0 10px; padding-bottom:6px; border-bottom:1px solid rgba(125,211,252,.1);
+}
+.meta{font:400 12px var(--mono); color:var(--dim); margin-top:8px}
+.meta strong{color:var(--ion)}
+.status{margin-top:10px; font:400 12px var(--mono); padding:8px 10px; border-radius:var(--radius); border:1px solid var(--line); color:var(--dim)}
+.status.ok{color:var(--ok); border-color:rgba(52,211,153,.25); background:rgba(52,211,153,.06)}
+.status.err{color:var(--nova); border-color:rgba(255,107,90,.3); background:rgba(255,107,90,.08)}
+.out{
+  margin-top:10px; background:rgba(5,8,15,.85); border:1px solid rgba(94,234,212,.18);
+  border-radius:var(--radius); padding:12px; font:400 12px/1.5 var(--mono); white-space:pre-wrap; word-break:break-word; min-height:64px;
+}
+.ftr{text-align:center; padding:24px; color:var(--muted); font:400 10px var(--mono); letter-spacing:.06em; border-top:1px solid var(--line); margin-top:24px}
+
+/* Audit drawer */
+#drawer-overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:200}
+#drawer-overlay.open{display:block}
+#tab-drawer{
+  position:fixed; top:40px; left:0; bottom:0; width:min(300px,86vw); z-index:210;
+  background:rgba(5,8,15,.96); border-right:1px solid var(--line); transform:translateX(-105%);
+  transition:transform .25s var(--ease); overflow:auto; backdrop-filter:blur(18px);
+}
+#tab-drawer.open{transform:none}
+.drawer-header{display:flex; justify-content:space-between; padding:14px 14px 10px; font:600 10px var(--mono); letter-spacing:.12em; color:var(--star); text-transform:uppercase}
+.dtab{
+  display:block; width:calc(100% - 16px); margin:3px 8px; text-align:left;
+  appearance:none; background:transparent; border:1px solid transparent; border-left:2px solid transparent;
+  color:var(--dim); border-radius:6px; padding:10px 12px; font:600 11px var(--mono); letter-spacing:.04em; cursor:pointer;
+}
+.dtab:hover{color:var(--text); background:rgba(94,234,212,.06)}
+.dtab.active{color:var(--star); background:rgba(245,197,66,.08); border-color:rgba(245,197,66,.2); border-left-color:var(--star)}
+#tab-trigger{
+  position:fixed; top:56px; left:12px; z-index:220; width:42px; height:42px;
+  border:1px solid rgba(94,234,212,.25); border-radius:10px; background:rgba(5,8,15,.9);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; cursor:pointer;
+}
+#tab-trigger span{display:block; width:18px; height:1.5px; background:var(--plasma)}
+#tab-label{
+  position:fixed; top:64px; left:64px; z-index:220; font:600 11px var(--mono); letter-spacing:.1em;
+  text-transform:uppercase; color:var(--star); opacity:0; transition:.2s;
+}
+#audit-app.drawer-ready #tab-label{opacity:1}
+.audit-pane{display:none}
+.audit-pane.active{display:block}
+.check{display:flex; gap:8px; align-items:flex-start; margin:6px 0; font:400 12px/1.45 var(--sans); color:var(--dim)}
+.check input{margin-top:3px}
+.sev{display:inline-block; font:700 9px var(--mono); letter-spacing:.08em; padding:2px 6px; border-radius:4px; margin-right:6px}
+.sev.c{background:rgba(255,107,90,.2); color:var(--nova)}
+.sev.h{background:rgba(245,197,66,.18); color:var(--star)}
+.sev.m{background:rgba(56,189,248,.15); color:var(--ion)}
+.sev.l{background:rgba(52,211,153,.12); color:var(--ok)}
+@media(max-width:640px){.hdr{flex-wrap:wrap}.suite-brand{display:none}}
+</style>
+</head>
+<body>
+<div class="suite-brand">AIP <em>Web3</em> Suite</div>
+
+<div class="mode-bar">
+  <button class="mode-btn osint-btn active" id="mode-osint" onclick="switchMode('osint')">
+    <span class="mode-label"><span class="mode-dot"></span>Chain Intel — Web3 OSINT</span>
+  </button>
+  <button class="mode-btn audit-btn" id="mode-audit" onclick="switchMode('audit')">
+    <span class="mode-label"><span class="mode-dot"></span>Audit Matrix — Web3 Hunt</span>
+  </button>
+</div>
+
+<!-- ═══════════════ CHAIN INTEL (OSINT) ═══════════════ -->
+<div id="osint-app">
+  <header class="hdr">
+    <div>
+      <div class="hdr-logo-name">AIP Web3</div>
+      <span class="hdr-logo-sub">Wallet · Contract · Protocol · Sanctions · Graph</span>
+    </div>
+    <div class="hdr-status" id="osint-status">READY</div>
+    <button class="hdr-btn" type="button" onclick="osintReset()">Clear</button>
+  </header>
+  <main class="main">
+    <div class="card">
+      <div class="label">Target — address · ENS · tx · token · protocol</div>
+      <div class="row">
+        <input class="seed" id="osint-seed" type="text" placeholder="0x… · vitalik.eth · tx hash · protocol name"
+          onkeydown="if(event.key==='Enter')osintRun()" oninput="osintClassify()">
+        <div class="badge" id="osint-type">—</div>
+        <button class="btn primary" type="button" onclick="osintRun()">Run collection</button>
+      </div>
+      <div class="meta" id="osint-hint">Paste a checksummed EVM address, ENS-style name, or 0x tx hash. Client-side classification + checklist intel — no server.</div>
+    </div>
+
+    <div class="empty" id="osint-empty">
+      <h2>Chain surface in one pass</h2>
+      <p>Equivalent to Web2 OSINT — but for wallets, contracts, bridges, oracles, and protocol exposure. Build a hunt brief before you open Slither / Foundry / Immunefi.</p>
+      <div class="pills">
+        <span class="pill">◈ Address / ENS</span>
+        <span class="pill">◈ Contract surface</span>
+        <span class="pill">◈ Oracle / bridge risk</span>
+        <span class="pill">◈ Governance</span>
+        <span class="pill">◈ Sanctions posture</span>
+        <span class="pill">◈ Exploit class map</span>
+      </div>
+    </div>
+
+    <div id="osint-results" hidden>
+      <div class="jump" id="osint-jump"></div>
+      <div class="meta" id="osint-summary"></div>
+
+      <div class="cat active" id="cat-identity">
+        <div class="cat-h">◇ Identity & target profile</div>
+        <div class="grid" id="grid-identity"></div>
+      </div>
+      <div class="cat" id="cat-infra">
+        <div class="cat-h">◇ On-chain infrastructure</div>
+        <div class="grid" id="grid-infra"></div>
+      </div>
+      <div class="cat" id="cat-threat">
+        <div class="cat-h">◇ Threat & exploit classes</div>
+        <div class="grid" id="grid-threat"></div>
+      </div>
+      <div class="cat" id="cat-exposure">
+        <div class="cat-h">◇ Exposure & approvals</div>
+        <div class="grid" id="grid-exposure"></div>
+      </div>
+      <div class="cat" id="cat-protocol">
+        <div class="cat-h">◇ Protocol / DeFi surface</div>
+        <div class="grid" id="grid-protocol"></div>
+      </div>
+      <div class="cat" id="cat-gov">
+        <div class="cat-h">◇ Governance & keys</div>
+        <div class="grid" id="grid-gov"></div>
+      </div>
+      <div class="cat" id="cat-finance">
+        <div class="cat-h">◇ Financial / TVL posture</div>
+        <div class="grid" id="grid-finance"></div>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <button class="btn" type="button" onclick="osintExport('md')">Export MD</button>
+        <button class="btn" type="button" onclick="osintExport('json')">Export JSON</button>
+        <button class="btn danger" type="button" onclick="osintReset()">Ephemeral wipe</button>
+      </div>
+    </div>
+  </main>
+  <footer class="ftr">AIP Web3 Suite · Chain Intel · Authorized research only · © 2026 Aetherverse Intelligence</footer>
+</div>
+
+<!-- ═══════════════ AUDIT MATRIX ═══════════════ -->
+<div id="audit-app">
+  <div id="drawer-overlay" onclick="closeDrawer()"></div>
+  <div id="tab-drawer">
+    <div class="drawer-header"><span>Select module</span><span style="color:var(--nova)">15 TABS</span></div>
+    <button class="dtab active" onclick="selectAudit(0)">⚙ Selector / proxy</button>
+    <button class="dtab" onclick="selectAudit(1)">🔁 Reentrancy map</button>
+    <button class="dtab" onclick="selectAudit(2)">📡 Oracle / price</button>
+    <button class="dtab" onclick="selectAudit(3)">⚡ Flashloan paths</button>
+    <button class="dtab" onclick="selectAudit(4)">🔐 Access / roles</button>
+    <button class="dtab" onclick="selectAudit(5)">🧮 Math / shares</button>
+    <button class="dtab" onclick="selectAudit(6)">🌉 Bridge / message</button>
+    <button class="dtab" onclick="selectAudit(7)">🏛 Governance</button>
+    <button class="dtab" onclick="selectAudit(8)">◎ Solana / SVM</button>
+    <button class="dtab" onclick="selectAudit(9)">🤖 Agentic AI (ASI)</button>
+    <button class="dtab" onclick="selectAudit(10)">🧠 LLM×DeFi agents</button>
+    <button class="dtab" onclick="selectAudit(11)">📋 BVET / report gate</button>
+    <button class="dtab" onclick="selectAudit(12)">🗺 ATT&CK for blockchain</button>
+    <button class="dtab" onclick="selectAudit(13)">🚨 Known exploit patterns</button>
+    <button class="dtab" onclick="selectAudit(14)">🧪 Foundry PoC scaffold</button>
+  </div>
+  <div id="tab-trigger" onclick="toggleDrawer()" title="Modules"><span></span><span></span><span></span></div>
+  <div id="tab-label">Selector / proxy</div>
+
+  <header class="hdr" style="padding-left:64px">
+    <div>
+      <div class="hdr-logo-name">Audit Matrix</div>
+      <span class="hdr-logo-sub">ARIA-aligned hunt classes · checklists · PoC scaffolds</span>
+    </div>
+    <div class="hdr-status" id="audit-status">MODULE 01 / 15</div>
+  </header>
+
+  <main class="main" style="padding-left:24px" id="audit-main">
+    <!-- panes injected by JS for clarity -->
+  </main>
+  <footer class="ftr">AIP Web3 Suite · Audit Matrix · Authorized engagements only · © 2026</footer>
+</div>
+
+<script>
+"use strict";
+/* AIP Web3 Suite — standalone. Chain Intel + Audit Matrix. No server. */
+
+function switchMode(m){
+  const osint = m === "osint";
+  document.getElementById("osint-app").style.display = osint ? "block" : "none";
+  document.getElementById("audit-app").style.display = osint ? "none" : "block";
+  document.getElementById("mode-osint").classList.toggle("active", osint);
+  document.getElementById("mode-audit").classList.toggle("active", !osint);
+  if(!osint) document.getElementById("audit-app").classList.add("drawer-ready");
+}
+
+/* ---------- address helpers ---------- */
+function isHexAddress(s){ return /^0x[a-fA-F0-9]{40}$/.test(s); }
+function isTxHash(s){ return /^0x[a-fA-F0-9]{64}$/.test(s); }
+function isEns(s){ return /^[a-z0-9-]+\.eth$/i.test(s); }
+
+function ethChecksum(addr){
+  // EIP-55 (simplified keccak via SubtleCrypto async — sync fallback: lower)
+  return addr.toLowerCase();
+}
+
+async function keccak256Hex(hexNo0x){
+  // Browser has no keccak; use sha-256 as non-crypto label hash only for UI fingerprint
+  const bytes = new Uint8Array(hexNo0x.match(/.{1,2}/g).map(b=>parseInt(b,16)));
+  const dig = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(dig)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+function classify(raw){
+  const s = (raw||"").trim();
+  if(!s) return {kind:"empty", label:"—"};
+  if(isTxHash(s)) return {kind:"tx", label:"TX HASH"};
+  if(isHexAddress(s)) return {kind:"address", label:"EVM ADDRESS"};
+  if(isEns(s)) return {kind:"ens", label:"ENS"};
+  if(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s)) return {kind:"solana", label:"SOLANA-LIKE"};
+  return {kind:"protocol", label:"PROTOCOL / NAME"};
+}
+
+function osintClassify(){
+  const c = classify(document.getElementById("osint-seed").value);
+  document.getElementById("osint-type").textContent = c.label;
+}
+
+function panel(title, body){
+  return `<div class="panel"><h3>${title}</h3><div class="kv">${body}</div></div>`;
+}
+
+function setGrid(id, html){ document.getElementById(id).innerHTML = html; }
+
+let lastDossier = null;
+
+function osintReset(){
+  document.getElementById("osint-seed").value = "";
+  document.getElementById("osint-type").textContent = "—";
+  document.getElementById("osint-empty").hidden = false;
+  document.getElementById("osint-results").hidden = true;
+  document.getElementById("osint-status").textContent = "READY";
+  lastDossier = null;
+}
+
+function jumpTo(id){
+  document.querySelectorAll(".cat").forEach(c=>c.classList.remove("active"));
+  document.querySelectorAll("#osint-jump button").forEach(b=>b.classList.remove("active"));
+  const el = document.getElementById(id);
+  if(el) el.classList.add("active");
+  const btn = document.querySelector(`#osint-jump button[data-id="${id}"]`);
+  if(btn) btn.classList.add("active");
+  el?.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+async function osintRun(){
+  const raw = document.getElementById("osint-seed").value.trim();
+  const c = classify(raw);
+  if(c.kind==="empty"){
+    document.getElementById("osint-status").textContent = "ENTER TARGET";
+    return;
+  }
+  document.getElementById("osint-status").textContent = "COLLECTING…";
+  document.getElementById("osint-empty").hidden = true;
+  document.getElementById("osint-results").hidden = false;
+
+  const lower = raw.toLowerCase();
+  const fp = isHexAddress(raw) ? (await keccak256Hex(raw.slice(2))).slice(0,16) : "—";
+
+  const cats = [
+    ["cat-identity","Identity"],
+    ["cat-infra","Infra"],
+    ["cat-threat","Threat"],
+    ["cat-exposure","Exposure"],
+    ["cat-protocol","Protocol"],
+    ["cat-gov","Governance"],
+    ["cat-finance","Finance"],
+  ];
+  document.getElementById("osint-jump").innerHTML = cats.map(([id,lab],i)=>
+    `<button type="button" data-id="${id}" class="${i===0?"active":""}" onclick="jumpTo('${id}')">◈ ${lab}</button>`
+  ).join("");
+
+  setGrid("grid-identity", [
+    panel("Target class", `<strong>${c.label}</strong>\nInput: ${esc(raw)}`),
+    panel("Normalization", c.kind==="address"
+      ? `lower: ${esc(lower)}\nfingerprint(sha256-16): ${fp}\nNote: use EIP-55 checksum before publish`
+      : `normalized: ${esc(lower)}`),
+    panel("Hunt seeds", `• Explorer search\n• Label databases (Etherscan labels)\n• Cluster / funded-by edges\n• Related ENS / reverse records`),
+  ].join(""));
+
+  setGrid("grid-infra", [
+    panel("Bytecode / deploy", c.kind==="address"||c.kind==="ens"
+      ? `Check: creator tx · factory · proxy EIP-1967 slots\n• implementation slot 0x3608…\n• admin slot 0xb531…\n• beacon patterns`
+      : `Resolve name → implementation addresses first`),
+    panel("Chain surface", `Multi-chain fanout:\nEthereum · Base · Arbitrum · Optimism · Polygon · BSC · Avalanche\nAsk: same deployer? same bytecode? bridge canonical?`),
+    panel("Dependencies", `Oracles · routers · vaults · messengers (CCIP/LayerZero/Wormhole)\nExternal callbacks (ERC777/1155/flashloan)`),
+  ].join(""));
+
+  setGrid("grid-threat", [
+    panel("Primary classes", `<span class="sev c">CRIT</span>Reentrancy / read-only reentrancy\n<span class="sev c">CRIT</span>Oracle manipulation / donation\n<span class="sev h">HIGH</span>Access control / init / upgrade\n<span class="sev h">HIGH</span>Bridge message validation\n<span class="sev m">MED</span>Share inflation / rounding`),
+    panel("ARIA mode hints", `ARIA-2 reentrancy · ARIA-3 oracle · ARIA-4 flashloan\nARIA-5 access · ARIA-6 math · ARIA-7 bridge · ARIA-8 gov\nARIA-10 SVM if Solana`),
+    panel("Quick questions", `• CEI violated?\n• Spot price in critical path?\n• Unprotected initialize?\n• Unsigned / under-validated cross-chain payload?`),
+  ].join(""));
+
+  setGrid("grid-exposure", [
+    panel("Approval / allowance", `Scan unlimited allowances to routers & drainers\nMap spenders · revoke.cash style triage`),
+    panel("Privileged ops", `owner · DEFAULT_ADMIN_ROLE · GUARDIAN · PAUSER · UPGRADER\nTimelock delay? Multisig threshold?`),
+    panel("Public blast radius", `Is the target OFAC-adjacent?\nMixer / sanctioned cluster proximity (manual OSINT)`),
+  ].join(""));
+
+  setGrid("grid-protocol", [
+    panel("Composability", `Integrates with: AMMs · lending · LSTs · perps · restaking\nFailure mode: cascading insolvency / bad debt`),
+    panel("Invariant candidates", `solvency · NAV vs shares · collateral factor · bridge liquidity\nWrite Foundry invariants before deep dive`),
+    panel("Upgrade story", `Transparent / UUPS / Beacon / Diamond\nWho can upgrade? Storage layout collisions?`),
+  ].join(""));
+
+  setGrid("grid-gov", [
+    panel("Governance attack surface", `Flashloan voting · zero delay · open EXECUTOR\nQuorum games · proposal griefing`),
+    panel("Key ceremony", `Deployer EOA still privileged?\nRenounced? Timelocked? Hardware multisig?`),
+    panel("Emergency paths", `Pause · shutdown · migrate · clawback\nCan pause brick users unfairly?`),
+  ].join(""));
+
+  setGrid("grid-finance", [
+    panel("Economic lens", `TVL concentration · oracle latency · LP exit liquidity\nIs profit atomic in one tx? (flashloanable)`),
+    panel("Bounty posture", `Immunefi / Cantina / Code4rena / Sherlock\nSeverity ↔ funds at risk mapping`),
+    panel("Next actions", `1) Pull verified source\n2) Slither + manual entrypoints\n3) Fork PoC on Anvil\n4) BVET before submit`),
+  ].join(""));
+
+  lastDossier = {
+    schema: "aip.web3.chain-intel.v1",
+    target: raw,
+    class: c,
+    fingerprint: fp,
+    generated_at: new Date().toISOString(),
+  };
+  document.getElementById("osint-summary").innerHTML =
+    `Brief ready for <strong>${esc(c.label)}</strong> · fingerprint <strong>${fp}</strong> · switch categories above`;
+  document.getElementById("osint-status").textContent = "DOSSIER READY";
+  jumpTo("cat-identity");
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+}
+
+function osintExport(kind){
+  if(!lastDossier) return;
+  let body, name, type;
+  if(kind==="json"){
+    body = JSON.stringify(lastDossier, null, 2);
+    name = "aip-web3-intel.json"; type = "application/json";
+  } else {
+    body = `# AIP Web3 Chain Intel\n\n- target: \`${lastDossier.target}\`\n- class: ${lastDossier.class.label}\n- fingerprint: ${lastDossier.fingerprint}\n- at: ${lastDossier.generated_at}\n\n## Next\n- Verified source\n- Entrypoint map\n- Fork PoC\n- BVET gates\n`;
+    name = "aip-web3-intel.md"; type = "text/markdown";
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([body], {type}));
+  a.download = name; a.click();
+}
+
+/* ---------- Audit Matrix ---------- */
+const AUDIT_TABS = [
+  {title:"Selector / proxy", sev:"high", blurb:"Map proxy patterns and selector collisions before logic review.",
+    items:[
+      "Identify Transparent / UUPS / Beacon / Diamond",
+      "Read EIP-1967 implementation & admin slots",
+      "Check initialize / re-initialize protection",
+      "Selector clashing across facets",
+      "Storage layout gap analysis vs upgrades",
+    ],
+    payloads:`// cast storage <proxy> 0x360894a13ba1a3210667c828492db98dca3e207260adc198dce132a76e8c5c1\n// forge inspect <Contract> methods`},
+  {title:"Reentrancy map", sev:"crit", blurb:"CEI, cross-function, read-only, ERC777/1155 hooks.",
+    items:["External calls before state finalization","Read-only reentrancy via views mid-call","ERC777/1155 receiver hooks","Cross-contract callback paths","NonReentrant coverage gaps"],
+    payloads:`// Heuristic: look for .call{value:} / safeTransferFrom before balances[user]=`},
+  {title:"Oracle / price", sev:"crit", blurb:"Spot AMM, TWAP, Chainlink staleness, donation attacks.",
+    items:["Spot price in borrow/mint/liquidate","Chainlink heartbeat / sequencers","Uniswap TWAP window too short","Donation / inflation of empty pools","L2 sequencer uptime assumptions"],
+    payloads:`// Check latestRoundData completeness + answeredInRound + updatedAt`},
+  {title:"Flashloan paths", sev:"crit", blurb:"Atomic capital → oracle/governance/share games.",
+    items:["Same-tx price influence","Governance vote with borrowed size","Share inflation on empty vaults","Collateral factor manipulation","Repay path accounting errors"],
+    payloads:`// Foundry: deal() + flashloan callback harness`},
+  {title:"Access / roles", sev:"high", blurb:"Ownable, AccessControl, init, upgrade auth.",
+    items:["Unprotected initialize","DEFAULT_ADMIN_ROLE held by EOA","Missing onlyOwner on critical setters","Upgradeable auth bypass","Timelock not wired to executor"],
+    payloads:`// grep -R "initialize\\|onlyOwner\\|grantRole" -n`},
+  {title:"Math / shares", sev:"high", blurb:"Rounding, inflation, fee-on-transfer, ERC4626.",
+    items:["First depositor inflation","Fee-on-transfer not accounted","Rounding direction favors attacker","Index/rate overflow edges","ERC4626 convertToAssets assumptions"],
+    payloads:`// Invariant: totalAssets vs sum(convertToAssets(shares))`},
+  {title:"Bridge / message", sev:"crit", blurb:"Message validation, replay, guardian thresholds.",
+    items:["Payload auth / signatures","Replay across chains","Hash collision / domain separator","Guardian threshold / honesty","Amount / token whitelist gaps"],
+    payloads:`// Verify _verifyMessage / lzReceive / ccipReceive auth`},
+  {title:"Governance", sev:"high", blurb:"Flashloan votes, delay, quorum, open executor.",
+    items:["Voting delay = 0","Open EXECUTOR_ROLE","Quorum manipulable","Proposal griefing cost","Emergency council powers"],
+    payloads:`// Simulate proposal + castVote with deal()'d tokens`},
+  {title:"Solana / SVM", sev:"high", blurb:"Account validation, signer checks, CPI.",
+    items:["Missing signer checks","Arbitrary CPI","PDA bump seed misuse","Account owner confusion","Integer wrap in unsafe math"],
+    payloads:`// Anchor: #[account(signer)] · has_one · constraint`},
+  {title:"Agentic AI (ASI)", sev:"high", blurb:"OWASP Agentic Top 10 adapted to on-chain agents.",
+    items:["Tool/privilege injection","Goal hijack via untrusted state","Memory poisoning","Excessive agency / spend limits","Multi-agent trust confusion"],
+    payloads:`ASI01 goal abuse · ASI02 tool misuse · ASI06 memory`},
+  {title:"LLM×DeFi agents", sev:"high", blurb:"Prompt injection into trading / ops agents.",
+    items:["Indirect injection via token metadata","Untrusted web browse → tool call","Signer exposed to model output","No human gate on transfers","Simulation ≠ execution divergence"],
+    payloads:`// Treat token name/symbol/URI as hostile input`},
+  {title:"BVET / report gate", sev:"med", blurb:"Pre-submission quality gate (ARIA-style).",
+    items:["Impact quantified in $ or invariants","Fork-executed PoC (Anvil)","Scope address exact match","Root cause ≠ symptom","Remediation patch sketched"],
+    payloads:`Gate: Scope · Impact · PoC · Root cause · Fix`},
+  {title:"ATT&CK for blockchain", sev:"med", blurb:"Map findings to chain-native tactics.",
+    items:["Initial access: compromised key / phishing dApp","Execution: malicious calldata / permit","Persistence: upgrade backdoor","Exfiltration: drain / bridge out","Impact: freeze / brick / theft"],
+    payloads:`Map each finding → tactic · technique · evidence`},
+  {title:"Known exploit patterns", sev:"crit", blurb:"Historical class → checklist (not copy-paste exploits).",
+    items:["Price oracle spot read (many 2020–2023 drains)","Empty market inflation","Bridge validation failures","Approval phishing / Permit","Governance flashloan majority"],
+    payloads:`Study: Wormhole · Nomad · Euler · Bean · PolyNetwork classes`},
+  {title:"Foundry PoC scaffold", sev:"med", blurb:"Starter test skeleton for authorized forks.",
+    items:["Fork URL + block pin","Selectors under test","Assertions on balances","No mainnet broadcast","Keep PoC minimal & ethical"],
+    payloads:`// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\nimport "forge-std/Test.sol";\n\ncontract AipWeb3PoC is Test {\n    function setUp() public {\n        vm.createSelectFork(vm.envString("ETH_RPC_URL"));\n    }\n    function test_Hypothesis() public {\n        // arrange · act · assert funds movement\n        assertTrue(true);\n    }\n}`},
+];
+
+function toggleDrawer(){
+  document.getElementById("tab-drawer").classList.toggle("open");
+  document.getElementById("drawer-overlay").classList.toggle("open");
+}
+function closeDrawer(){
+  document.getElementById("tab-drawer").classList.remove("open");
+  document.getElementById("drawer-overlay").classList.remove("open");
+}
+
+function renderAuditPanes(){
+  const main = document.getElementById("audit-main");
+  main.innerHTML = AUDIT_TABS.map((t,i)=>{
+    const checks = t.items.map((it,j)=>
+      `<label class="check"><input type="checkbox" data-tab="${i}" data-i="${j}"> <span>${esc(it)}</span></label>`
+    ).join("");
+    return `<div class="audit-pane ${i===0?"active":""}" id="audit-pane-${i}">
+      <div class="card star-edge">
+        <div class="label">Module ${String(i+1).padStart(2,"0")} / 15</div>
+        <h2 style="font:800 22px var(--display);letter-spacing:.06em;text-transform:uppercase;margin:4px 0 8px">${esc(t.title)}</h2>
+        <p class="meta">${esc(t.blurb)}</p>
+        <div style="margin-top:14px">${checks}</div>
+        <div class="label" style="margin-top:16px">Operator notes / commands</div>
+        <div class="out" id="audit-pay-${i}">${esc(t.payloads)}</div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" type="button" onclick="copyAudit(${i})">Copy notes</button>
+          <button class="btn star" type="button" onclick="scoreAudit(${i})">Score checklist</button>
+        </div>
+        <div class="status" id="audit-score-${i}"></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function selectAudit(i){
+  document.querySelectorAll(".dtab").forEach((b,idx)=>b.classList.toggle("active", idx===i));
+  document.querySelectorAll(".audit-pane").forEach((p,idx)=>p.classList.toggle("active", idx===i));
+  document.getElementById("tab-label").textContent = AUDIT_TABS[i].title;
+  document.getElementById("audit-status").textContent = `MODULE ${String(i+1).padStart(2,"0")} / 15`;
+  closeDrawer();
+}
+
+function copyAudit(i){
+  navigator.clipboard.writeText(AUDIT_TABS[i].payloads).then(()=>{
+    const el = document.getElementById("audit-score-"+i);
+    el.textContent = "Notes copied.";
+    el.className = "status ok";
+  });
+}
+
+function scoreAudit(i){
+  const boxes = [...document.querySelectorAll(`input[type=checkbox][data-tab="${i}"]`)];
+  const done = boxes.filter(b=>b.checked).length;
+  const el = document.getElementById("audit-score-"+i);
+  el.textContent = `Checklist ${done}/${boxes.length} covered · ${AUDIT_TABS[i].sev.toUpperCase()} priority class`;
+  el.className = "status ok";
+}
+
+renderAuditPanes();
+osintClassify();
+</script>
+</body>
+</html>
