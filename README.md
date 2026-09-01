@@ -7,30 +7,31 @@ Standalone browser operator consoles from **Aetherverse Intelligence Protocol (A
 | [`AIP-Web2-Suite.html`](./AIP-Web2-Suite.html) | OSINT · Pentest Matrix · **Capabilities** | Elite first-pass Web2 intel + adversarial matrix |
 | [`AIP-Web3-Suite.html`](./AIP-Web3-Suite.html) | Chain Intel · Audit Matrix · **Capabilities** | Web3 hunt OS with **FORK_EXECUTED-only** PoC gate |
 
-## Capabilities
+## What you can do with AIP Web Suites
 
-### Web2 Suite (`AIP-Web2-Suite.html`)
+Open a single HTML file in your browser and run a **full first-pass intel or audit workflow** — no install, no backend, no account wall for the core rails.
 
-| Area | What it does |
-|------|----------------|
-| **OSINT** | DNS, RDAP WHOIS, Shodan InternetDB, Google DNS, explorer/link modules |
-| **Pentest Matrix** | TAP handoff — target, CVEs, engagement fields from OSINT context |
-| **Capabilities tab** | In-browser module reference |
-| **Export** | HTML, TXT, JSON, printable Gov report — fully client-side |
-| **API keys** | Optional — deeper coverage when proxy/keys present |
+### Web2 Suite — recon + pentest handoff
 
-### Web3 Suite (`AIP-Web3-Suite.html`)
+- **Seed a target** (domain, IP, org) and pull DNS, WHOIS/RDAP, Shodan InternetDB, and link/explorer modules in one pass.
+- **Send findings to Pentest Matrix** — target context, CVE hints, and engagement fields carry over automatically.
+- **Export a Gov-ready report** — HTML, TXT, or JSON, entirely client-side.
+- **Browse the Capabilities tab** for every module reference without leaving the page.
 
-| Area | What it does |
-|------|----------------|
-| **Chain Intel** | ENS, bytecode, explorer lookups (when CORS allows) |
-| **Audit Matrix** | Hypothesis modules, PoC scaffold — unlocks only after fork attestation |
-| **FORK_EXECUTED gate** | Rejects simulation-only speculation and mainnet exploit broadcasts |
-| **Fork Lab** | Real `forge test --fork-url` @ `:8787` — required for Audit Matrix unlock |
+### Web3 Suite — hunt with proof, not vibes
 
-**No install** for core suites — open HTML via local static server. Fork Lab optional for Web3 PoC rigor.
+- **Build a chain intel dossier** — ENS, bytecode, explorer data when endpoints allow.
+- **Run Audit Matrix** against a contract address — hypothesis modules, recommended tests, PoC scaffold.
+- **Unlock PoC only after a real fork** — Audit Matrix refuses simulation-only claims; you need **FORK_EXECUTED** attestation from Fork Lab.
 
-## Fork Lab (REAL forks — required for Audit Matrix unlock)
+### Fork Lab (Web3 rigor)
+
+- Spin up **real Foundry forks** @ `:8787` so your PoC actually ran against chain state — not a checklist you clicked through.
+
+```bash
+python3 -m http.server 8080
+# → http://127.0.0.1:8080/AIP-Web2-Suite.html
+```
 
 Audit Matrix unlocks **only** after a real `forge test --fork-url` pass — not a checklist.
 
