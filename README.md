@@ -7,6 +7,29 @@ Standalone browser operator consoles from **Aetherverse Intelligence Protocol (A
 | [`AIP-Web2-Suite.html`](./AIP-Web2-Suite.html) | OSINT · Pentest Matrix · **Capabilities** | Elite first-pass Web2 intel + adversarial matrix |
 | [`AIP-Web3-Suite.html`](./AIP-Web3-Suite.html) | Chain Intel · Audit Matrix · **Capabilities** | Web3 hunt OS with **FORK_EXECUTED-only** PoC gate |
 
+## Capabilities
+
+### Web2 Suite (`AIP-Web2-Suite.html`)
+
+| Area | What it does |
+|------|----------------|
+| **OSINT** | DNS, RDAP WHOIS, Shodan InternetDB, Google DNS, explorer/link modules |
+| **Pentest Matrix** | TAP handoff — target, CVEs, engagement fields from OSINT context |
+| **Capabilities tab** | In-browser module reference |
+| **Export** | HTML, TXT, JSON, printable Gov report — fully client-side |
+| **API keys** | Optional — deeper coverage when proxy/keys present |
+
+### Web3 Suite (`AIP-Web3-Suite.html`)
+
+| Area | What it does |
+|------|----------------|
+| **Chain Intel** | ENS, bytecode, explorer lookups (when CORS allows) |
+| **Audit Matrix** | Hypothesis modules, PoC scaffold — unlocks only after fork attestation |
+| **FORK_EXECUTED gate** | Rejects simulation-only speculation and mainnet exploit broadcasts |
+| **Fork Lab** | Real `forge test --fork-url` @ `:8787` — required for Audit Matrix unlock |
+
+**No install** for core suites — open HTML via local static server. Fork Lab optional for Web3 PoC rigor.
+
 ## Fork Lab (REAL forks — required for Audit Matrix unlock)
 
 Audit Matrix unlocks **only** after a real `forge test --fork-url` pass — not a checklist.
